@@ -1,0 +1,9 @@
+part: 41229_16283ae1_0018.stl
+num_cameras: 3
+points_per_camera: [23526, 26693, 26687]
+merged_points: 76906
+match_threshold_m: 0.002
+completeness_ratio: 0.62425
+completeness_mean_dist_m: 0.001523812841890642
+accuracy_ratio: 0.6761761110966634
+accuracy_mean_dist_m: 0.001502945562575364
