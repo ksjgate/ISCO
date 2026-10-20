@@ -155,6 +155,8 @@ def _nominal_area(meta: dict) -> float | None:
 
 def e0_3(parts: list[str], set_id: str = "mvp", out: str | None = None, **_) -> Path:
     from ..datagen.variants import load_manifest
+    from ..geometry.mesh_io import LabeledMesh
+    from ..utils.io import resolve_data_path
 
     d = exp_dir("e0_3", out)
     rows = []
@@ -165,9 +167,19 @@ def e0_3(parts: list[str], set_id: str = "mvp", out: str | None = None, **_) -> 
                 continue
             nom = _nominal_area(m)
             if nom:
-                rows.append({"part": pid, "type": m["type"], "difficulty": r.get("difficulty"),
-                             "labelled_mm2": m["area_m2"] * 1e6, "nominal_mm2": nom * 1e6,
-                             "rel_err": m["area_m2"] / nom - 1.0})
+                row = {"part": pid, "type": m["type"], "difficulty": r.get("difficulty"),
+                       "labelled_mm2": m["area_m2"] * 1e6, "nominal_mm2": nom * 1e6,
+                       "rel_err": m["area_m2"] / nom - 1.0}
+                if m["type"] in ("dent", "bulge"):
+                    # the nominal ellipse is planar: compare the label's area projected onto
+                    # the defect's tangent plane (a bump stretches the surface itself)
+                    mesh = LabeledMesh.load(resolve_data_path(r["mesh"]))
+                    tm = mesh.to_trimesh()
+                    lab = mesh.face_label > 0
+                    proj = float((tm.area_faces[lab] * np.abs(tm.face_normals[lab] @ np.asarray(m["normal"]))).sum())
+                    row["rel_err"] = proj / nom - 1.0
+                    row["rel_err_3d"] = m["area_m2"] / nom - 1.0
+                rows.append(row)
     write_json(d / "rows.json", rows)
     types = sorted({r["type"] for r in rows})
     table = []
@@ -178,9 +190,13 @@ def e0_3(parts: list[str], set_id: str = "mvp", out: str | None = None, **_) -> 
                       float(np.median(np.abs(flat))) if len(flat) else float("nan")])
     md = "# E0.3 GT defect-mask sanity (labelled vs nominal area)\n\n" + _md_table(
         table, ["type", "n", "median rel. err", "median |rel. err|", "median |rel. err| (easy/flat)"])
+    d3 = [r["rel_err_3d"] for r in rows if "rel_err_3d" in r]
     md += ("\n\nNominal areas assume a locally flat surface (dent/bulge: ellipse where the bump exceeds 10 % of its"
-           " height; blind hole: wall + bottom; crack: slot walls + floor), so curved placements deviate by design."
-           " Acceptance (plan): |error| < 10 % on flat placements.\n")
+           " height, compared with the label projected onto the tangent plane; blind hole: wall + bottom; crack: slot"
+           " walls + floor), so curved placements and slots running past an edge deviate by design."
+           " Acceptance (plan): |error| < 10 % on flat placements."
+           + (f" Dent/bulge on the deformed (3D) surface instead: median |error| {np.median(np.abs(d3)):.3f}." if d3 else "")
+           + "\n")
     (d / "summary.md").write_text(md)
     write_json(d / "summary.json", {"table": table})
     return d
