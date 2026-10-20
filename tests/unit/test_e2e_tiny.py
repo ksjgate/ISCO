@@ -81,3 +81,38 @@ def test_tiny_end_to_end(tiny_root):
     md = build_report(tiny_root / "run", max_cams=3, max_cycle_s=5.0)
     assert md.exists() and (md.parent / "pareto.png").exists() and (md.parent / "recommended.json").exists()
     assert np.isfinite(json.loads((md.parent / "recommended.json").read_text())["fnr_report"])
+
+
+@pytest.mark.slow
+def test_slot_cache_rerenders_only_changed_instances(tiny_root):
+    """After the variant set is rebuilt with a new defect scale, a cache rebuild without
+    ``overwrite`` re-renders the changed (defect) instances and keeps the identical
+    (normal) ones - never silently reusing stale views."""
+    import time
+
+    from isco.datagen.defects import DefectDictionary
+    from isco.datagen.parts import prepare_part
+    from isco.datagen.variants import VariantSetSpec, build_variant_set
+    from isco.geometry.camera_model import SlotGrid
+    from isco.render.slot_cache import build_slot_cache, cache_dir
+    from isco.schemas.sensor import SensorModel
+
+    part = trimesh.creation.box(extents=[0.04, 0.02, 0.01])
+    prepare_part("tiny_box", "procedural:tiny_box", "procedural", target_max_dim_m=0.04, target_edge_m=1e-3, mesh=part)
+    sensor = SensorModel(sensor_id="sl_default", width=128, height=128)
+    grid = SlotGrid(azimuths_deg=(0.0, 180.0), elevations_deg=(60.0,), distances_m=(0.25,))
+
+    def spec(k):
+        return VariantSetSpec(set_id="c", n_bank=2, n_val=2, per_type_search=1, per_type_report=0, n_unreachable=0,
+                              types=["dent"], dictionary=DefectDictionary(scale_k=k))
+
+    build_variant_set("tiny_box", spec(1.0), n_workers=1)
+    build_slot_cache("tiny_box", "c", sensor, grid, n_workers=1)
+    views = cache_dir("tiny_box", "c", "sl_default") / "views"
+    before = {p.name: p.stat().st_mtime_ns for p in views.glob("*.npz")}
+    time.sleep(0.05)
+    build_variant_set("tiny_box", spec(1.4), n_workers=1, overwrite=True)
+    build_slot_cache("tiny_box", "c", sensor, grid, n_workers=1)
+    after = {p.name: p.stat().st_mtime_ns for p in views.glob("*.npz")}
+    changed = {n for n in before if after[n] != before[n]}
+    assert changed == {n for n in before if n.startswith("d_")}

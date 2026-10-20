@@ -142,6 +142,19 @@ def _render_instance(job: tuple[str, str, list, str]) -> dict:
     return {"inst_id": inst_id, "render_s": round(time.time() - t0, 3), "n_px": counts, "truncated_views": trunc}
 
 
+def instance_digest(mesh_path: str, T_world_part) -> str:
+    """Content digest of what an instance's cached views depend on: its mesh and pose."""
+    import hashlib
+    import json
+
+    m = LabeledMesh.load(resolve_data_path(mesh_path))
+    h = hashlib.sha1()
+    for a in (m.vertices.astype(np.float32), m.faces.astype(np.int32), m.face_label.astype(np.int32)):
+        h.update(np.ascontiguousarray(a).tobytes())
+    h.update(json.dumps(np.round(np.asarray(T_world_part, float), 12).tolist()).encode())
+    return h.hexdigest()[:16]
+
+
 def build_slot_cache(part_id: str, set_id: str, sensor: SensorModel | None = None, grid: SlotGrid | None = None,
                      n_workers: int = 6, overwrite: bool = False, occluder_path: str | None = None) -> SlotCache:
     from ..datagen.parts import load_part
@@ -168,11 +181,19 @@ def build_slot_cache(part_id: str, set_id: str, sensor: SensorModel | None = Non
     meta = {"part_id": part_id, "set_id": set_id, "sensor": sensor.model_dump(mode="json"), "grid": grid.to_dict(),
             "focus_m": focus.tolist(), "slots": slots, "backend": "embree(open3d)",
             "occluder": occluder_path or "belt_plane", "manifest_hash": man["spec_hash"]}
-    jobs = []
+    # an existing view is reused only if the instance (mesh + pose) is unchanged: a variant
+    # set rebuilt with, e.g., a new defect scale re-renders its defects, not its normals
+    old = read_json(root / "cache.json") if (root / "cache.json").exists() else {}
+    old_stats = old.get("instance_stats", {})
+    same_manifest = old.get("manifest_hash") == man["spec_hash"]
+    jobs, digests = [], {}
     for r in man["instances"]:
         out = root / "views" / f"{r['inst_id']}.npz"
+        digests[r["inst_id"]] = instance_digest(r["mesh"], r["T_world_part"])
         if out.exists() and not overwrite:
-            continue
+            known = old_stats.get(r["inst_id"], {}).get("digest")
+            if known == digests[r["inst_id"]] or (known is None and same_manifest):   # older caches: no digest
+                continue
         jobs.append((r["inst_id"], r["mesh"], r["T_world_part"], str(out)))
     t0 = time.time()
     results = []
@@ -186,8 +207,8 @@ def build_slot_cache(part_id: str, set_id: str, sensor: SensorModel | None = Non
                 results.append(res)
                 if (i + 1) % 25 == 0:
                     log.info(f"slot cache {part_id}/{set_id}: {i + 1}/{len(jobs)} instances")
-    old = read_json(root / "cache.json") if (root / "cache.json").exists() else {}
-    stats = {**old.get("instance_stats", {}), **{r["inst_id"]: r for r in results}}
+    stats = {**old_stats, **{r["inst_id"]: r for r in results}}
+    stats = {i: {**stats[i], "digest": digests[i]} for i in digests if i in stats}
     meta["instance_stats"] = stats
     meta["build_s"] = round(time.time() - t0, 1)
     n_px = np.array([s["n_px"] for s in stats.values()]) if stats else np.zeros((0, grid.n_slots))
