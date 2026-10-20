@@ -24,6 +24,7 @@ from ..schemas.sensor import NoiseModel
 from ..utils.hashing import content_hash
 from ..utils.io import repo_root
 from ..utils.logging import get_logger
+from ..utils.seeds import core_order_env
 from . import scorer
 
 log = get_logger(__name__)
@@ -175,9 +176,10 @@ class DetectionPipeline:
             for k in _THREAD_VARS:
                 os.environ[k] = "1"
             try:
-                self._pool = ctx.Pool(self.n_workers, initializer=_init, initargs=(
-                    self.part_id, self.set_id, self.sensor_id, self.det.model_dump_json(),
-                    self.process.model_dump_json(), self.noise.model_dump_json()))
+                with core_order_env():
+                    self._pool = ctx.Pool(self.n_workers, initializer=_init, initargs=(
+                        self.part_id, self.set_id, self.sensor_id, self.det.model_dump_json(),
+                        self.process.model_dump_json(), self.noise.model_dump_json()))
             finally:
                 for k, v in saved.items():
                     if v is None:

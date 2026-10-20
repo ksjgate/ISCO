@@ -14,7 +14,11 @@ class NoiseModel(BaseModel):
     p_dropout(theta)  = p0 + (1 - p0) * sigmoid((theta - theta_c) / width)
     flying pixels     : pixels next to a depth jump > flying_jump_m are moved towards the
                         far side with probability flying_p (random interpolation)
-    motion smear      : each point shifted along the belt by U(0, v * t_acq)
+    edge filter       : on-board filter of the sensor - pixels next to a measured depth
+                        jump > edge_filter_m (to a part pixel or the belt) are invalidated
+                        (removes the veil of flying pixels; 0 disables)
+    motion blur       : exposure-averaged depth over v * t_acq; pixels whose exposure
+                        crosses a jump > edge_filter_m are invalidated (inconsistent code)
     """
 
     name: str = "N2"
@@ -26,6 +30,7 @@ class NoiseModel(BaseModel):
     dropout_p0: float = 0.02
     flying_p: float = 0.3
     flying_jump_m: float = 2.0e-3
+    edge_filter_m: float = 2.0e-3
     quant_m: float = 0.0
     t_acq_s: float = 0.002
 

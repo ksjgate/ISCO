@@ -13,8 +13,10 @@ mkdir -p runs/logs
 W=${ISCO_WORKERS:-22}
 TLESS="--parts tless_13 --parts tless_18 --parts tless_29 --parts tless_30"
 PAIR="--parts tless_13 --parts tless_29"
-STEPS=(demo assets gate waitbuild e0_3 e0_4 e0_5 e0_2 e1 e2 e3 e4 real e5 e6 e7 e7b e8 dino)
-START="${1:-demo}"
+# calibration first: E0.5 decides the defect scale; "calib" stops the queue when it is out
+# of target (variant sets must then be rebuilt with the recommended scale_k)
+STEPS=(waitbuild e0_3 e0_4 e0_5 calib demo assets gate sanity e0_2 e1 e2 e3 e4 real e5 e6 e7 e7b e8 dino)
+START="${1:-waitbuild}"
 run=0
 for s in "${STEPS[@]}"; do
   [[ "$s" == "$START" ]] && run=1
@@ -28,6 +30,12 @@ for s in "${STEPS[@]}"; do
     e0_3)   isco exp run e0_3 $TLESS --parts mulsen_nut --parts fusion_51876 ;;
     e0_4)   isco exp run e0_4 --parts tless_13 --parts fusion_51876 --workers $W ;;
     e0_5)   isco exp run e0_5 $TLESS --parts mulsen_nut --parts mulsen_flat_pad --workers $W ;;
+    calib)  python -c "
+import json, sys
+s = json.load(open('runs/exp/e0_5/summary.json'))
+print('mean FNR at N2', s['mean_fnr_N2'], 'in target', s['in_target'], 'recommended scale_k', s['scale_k_recommended'])
+sys.exit(0 if s['in_target'] else 3)" || { echo "[run_experiments] calibration out of target: rebuild variant sets, then rerun from e0_5 $(date)"; exit 3; } ;;
+    sanity) isco exp run result_sanity --parts fusion_22340 --parts fusion_41229 --parts fusion_51876 --workers $W ;;
     e0_2)   bash scripts/start_worker.sh && isco exp run e0_2 --parts tless_29 --parts tless_13 --workers $W; \
             python -c "from isco.render.queue import FileJobQueue as Q; Q('queue').request_shutdown()" ;;
     e1)     isco exp run e1 $TLESS --parts mulsen_nut --parts mulsen_flat_pad --budget 30 --workers $W ;;

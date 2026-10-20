@@ -167,7 +167,8 @@ def compose_instance(cache: SlotCache, inst: dict, cfg: InspectionConfig, proces
         T_wc = cache.T_world_cam(cache_slot)
         belt_dir = rot_z(-th) @ np.array([1.0, 0.0, 0.0])      # along-belt direction in the stage-0 frame
         if v > 0 and noise.t_acq_s > 0:
-            vp = apply_motion_blur(vp, cam, T_wc, belt_dir, v * noise.t_acq_s)
+            vp = apply_motion_blur(vp, cam, T_wc, belt_dir, v * noise.t_acq_s,
+                                   jump_m=noise.edge_filter_m if noise.edge_filter_m > 0 else None)
         if not noise.is_noiseless:
             vp = apply_sensor_noise(vp, cam, T_wc, noise, rng_for(seed, inst["inst_id"], "noise", cache_slot, th, noise.name))
         if len(vp) == 0:

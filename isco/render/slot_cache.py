@@ -25,6 +25,7 @@ from ..geometry.transforms import apply_T
 from ..schemas.sensor import SensorModel
 from ..utils.io import data_root, read_json, resolve_data_path, write_json
 from ..utils.logging import get_logger
+from ..utils.seeds import core_order_env
 from .occluder import Occluder
 from .pixels import ViewPixels, dequantise, quantise
 
@@ -180,7 +181,7 @@ def build_slot_cache(part_id: str, set_id: str, sensor: SensorModel | None = Non
 
         n_threads = max(1, (mp.cpu_count() // n_workers))
         ctx = mp.get_context("spawn")
-        with ctx.Pool(n_workers, initializer=_init, initargs=(json.dumps(meta), occluder_path, n_threads)) as pool:
+        with core_order_env(), ctx.Pool(n_workers, initializer=_init, initargs=(json.dumps(meta), occluder_path, n_threads)) as pool:
             for i, res in enumerate(pool.imap_unordered(_render_instance, jobs)):
                 results.append(res)
                 if (i + 1) % 25 == 0:

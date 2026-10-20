@@ -23,7 +23,7 @@ from ..render.occluder import Occluder
 from ..schemas.sensor import SensorModel, VisibilityParams
 from ..utils.io import data_root, resolve_data_path, write_json
 from ..utils.logging import get_logger
-from ..utils.seeds import rng_for
+from ..utils.seeds import core_order_env, rng_for
 
 log = get_logger(__name__)
 
@@ -123,7 +123,7 @@ def build_visibility(part_id: str, set_id: str, sensor: SensorModel | None = Non
     recs = [r for r in man["instances"] if r["role"] in ("search", "report", "unreachable")]
     t0 = time.time()
     ctx = mp.get_context("spawn")
-    with ctx.Pool(n_workers, initializer=_init, initargs=(cfg,)) as pool:
+    with core_order_env(), ctx.Pool(n_workers, initializer=_init, initargs=(cfg,)) as pool:
         res = pool.map(_one, recs)
     ids = [r[0] for r in res]
     vis = np.stack([r[1] for r in res])           # (J, K, N)

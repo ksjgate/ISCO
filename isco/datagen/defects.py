@@ -359,21 +359,30 @@ class DefectGenerator:
                 return out, meta
             if dtype == "cut":
                 i, actual = self._pick(rng, self.edges.difficulty, difficulty)
-                if i is None:
-                    raise ValueError(f"no edge candidates with difficulty {difficulty}")
-                meta["difficulty"] = actual
-                meta["difficulty_requested"] = difficulty
-                p, e = self.edges.points[i], self.edges.edge_dir[i]
-                bis = self.edges.n1[i] + self.edges.n2[i]
-                bis /= np.linalg.norm(bis)
                 depth = tier_value(rng, *d.cut_depth_m, tier) * k
                 length = rng.uniform(*d.cut_length_m)
-                y = np.cross(bis, e)
-                R = np.stack([e, y, bis], axis=1)
-                # a box centred on the edge removes a wedge of ~depth below the edge
-                tv, tf = _box(p, R, np.array([length, 2.5 * depth, 2.0 * depth]))
-                meta.update({"center_m": p.tolist(), "normal": bis.tolist(), "length_m": length, "depth_m": depth,
-                             "k_visible": int(self.edges.k_visible[i])})
+                if i is not None:
+                    p, e = self.edges.points[i], self.edges.edge_dir[i]
+                    bis = self.edges.n1[i] + self.edges.n2[i]
+                    bis /= np.linalg.norm(bis)
+                    y = np.cross(bis, e)
+                    R = np.stack([e, y, bis], axis=1)
+                    # a box centred on the edge removes a wedge of ~depth below the edge
+                    tv, tf = _box(p, R, np.array([length, 2.5 * depth, 2.0 * depth]))
+                    meta.update({"cut_mode": "edge", "k_visible": int(self.edges.k_visible[i])})
+                else:
+                    # no sharp edge in reach (smooth scan-derived or turned parts): slice a
+                    # chip of the cut depth off the surface, leaving a flat facet
+                    i, actual = self._pick(rng, self.cands.difficulty, difficulty)
+                    if i is None:
+                        raise ValueError(f"no edge or surface candidates with difficulty {difficulty}")
+                    p, bis = _closest_on(base, self.cands.points[i])
+                    t1, t2 = _tangent_frame(bis, rng)
+                    tv, tf = _box(p, np.stack([t1, t2, bis], axis=1), np.array([length, length, 2.0 * depth]))
+                    meta.update({"cut_mode": "surface_chip", "k_visible": int(self.cands.k_visible[i])})
+                meta["difficulty"] = actual
+                meta["difficulty_requested"] = difficulty
+                meta.update({"center_m": p.tolist(), "normal": bis.tolist(), "length_m": length, "depth_m": depth})
             else:
                 i, actual = self._pick(rng, self.cands.difficulty, difficulty)
                 if i is None:

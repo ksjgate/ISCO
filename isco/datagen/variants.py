@@ -77,7 +77,15 @@ def _largest_remainder(n: int, mix: dict[str, float]) -> list[str]:
     return [k for k, c in zip(keys, base) for _ in range(c)]
 
 
-def plan_instances(spec: VariantSetSpec) -> list[dict]:
+def placeable_unreachable(gen, spec: VariantSetSpec) -> list[str]:
+    """Unreachable-control types this part can host: every type needs a hidden surface
+    point, except a cut, which can also sit on a hidden sharp edge (without one it is a
+    surface chip, ``DefectGenerator.make``)."""
+    tab = gen.difficulty_table()["unreachable"]
+    return [t for t in spec.unreachable_types if tab["surface"] > 0 or (t == "cut" and tab["edge"] > 0)]
+
+
+def plan_instances(spec: VariantSetSpec, unreachable_types: list[str] | None = None) -> list[dict]:
     """Deterministic instance plan (ids, roles, types, tiers, difficulties)."""
     rng = rng_for("plan", spec.seed)
     plan: list[dict] = []
@@ -93,8 +101,9 @@ def plan_instances(spec: VariantSetSpec) -> list[dict]:
             for i in range(n):
                 plan.append({"inst_id": f"d_{role}_{t}_{i:02d}", "role": role, "type": t,
                              "tier": tiers[i % 3], "difficulty": diffs[i]})
-    for i in range(spec.n_unreachable):
-        t = spec.unreachable_types[i % len(spec.unreachable_types)]
+    u_types = spec.unreachable_types if unreachable_types is None else unreachable_types
+    for i in range(spec.n_unreachable if u_types else 0):
+        t = u_types[i % len(u_types)]
         plan.append({"inst_id": f"u_{t}_{i:02d}", "role": "unreachable", "type": t, "tier": tiers[i % 3],
                      "difficulty": "unreachable"})
     return plan
@@ -146,17 +155,19 @@ def build_variant_set(part_id: str, spec: VariantSetSpec, n_workers: int = 8, ov
         raise RuntimeError(f"{man_path} exists with a different spec; pass overwrite=True")
     load_part(part_id)  # existence check
     (out / "meshes").mkdir(parents=True, exist_ok=True)
-    plan = plan_instances(spec)
+    _init_worker(part_id, spec.model_dump_json())          # main-process generator: candidate table
+    u_types = placeable_unreachable(_W["gen"], spec)
+    plan = plan_instances(spec, u_types)
     t0 = time.time()
     ctx = mp.get_context("spawn")
     with ctx.Pool(n_workers, initializer=_init_worker, initargs=(part_id, spec.model_dump_json())) as pool:
         records = pool.map(_make_instance, plan, chunksize=4)
-    _init_worker(part_id, spec.model_dump_json())
     man = {
         "part_id": part_id, "set_id": spec.set_id, "spec": spec.model_dump(mode="json"),
         "spec_hash": content_hash(spec.model_dump(mode="json")),
         "template": load_part(part_id).mesh_fine,
         "difficulty_table": _W["gen"].difficulty_table(),
+        "unreachable_types": u_types,
         "settle_used": _W["settle"] is not None,
         "instances": records, "build_s": round(time.time() - t0, 1),
         "counts": {r: sum(1 for x in records if x["role"] == r) for r in ("bank", "val", "search", "report", "unreachable")},

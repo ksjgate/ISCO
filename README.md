@@ -143,8 +143,10 @@ kept moving it). `bash scripts/isaac_regression.sh` reruns the three commands.
 
 Results go to `runs/exp/<name>/summary.json` (+ figures). Real-defect variant sets for
 `e5` are built with `isco.eval.real_parts.build_mulsen_real_set`.
-`bash scripts/run_experiments.sh [first_step]` runs the whole prioritised queue (demo,
-demo assets, gate, E0 calibration, E1–E8); every stage-2 evaluation is cached in
+`bash scripts/run_experiments.sh [first_step]` runs the whole prioritised queue (E0
+calibration, demo, demo assets, gate, result sanity, E1–E8). It stops after E0.5 when the
+reference configuration's FNR is outside the calibration target, so the variant sets can
+be rebuilt with the recommended defect scale first. Every stage-2 evaluation is cached in
 `data/evalcache/`, so the queue can be stopped and restarted. `scripts/make_demo_assets.py`
 writes the mid-term demo figures (baseline rigs per part, defect examples, coverage maps,
 Isaac RGB of the recommended rig).
@@ -158,7 +160,8 @@ installed by default).
 ## Configuration
 
 `configs/` holds named YAML files: `sensor/` (1024², 20° HFOV structured-light model),
-`noise/` (N0–N3, N2MS), `process/` (`inline_default`, `static_capture`), `grid/`,
+`noise/` (N0–N3, N2MS: axial noise, incidence dropout, flying pixels, the camera's on-board
+edge filter and exposure blur), `process/` (`inline_default`, `static_capture`), `grid/`,
 `detector/` (`fpfh_bank`, `cad_distance`), `defects/` (defect dictionary), `variants/`
 (`smoke`, `mvp`, `full`) and `search/` (`smoke`, `demo`, `full`).
 

@@ -5,7 +5,7 @@ voxel_m: 0.4e-3
 xyz_weight: 0.2
 coreset_ratio: 0.03
 coreset_max: 10000
-smooth_k: 32
+smooth_k: 96             # same score smoothing as fpfh_bank (E6 parity)
 image_agg: max
 use_coverage: true
 registration: icp

@@ -22,7 +22,7 @@ from .cost import CostModel
 from .space import SearchSpace, SpaceParams
 
 #: bump when stage-2 semantics change so cached evaluations are not reused
-EVAL_VERSION = "2026-10-20.2"   # .2: robust registration + per-stage registration
+EVAL_VERSION = "2026-10-20.3"   # .2: robust registration + per-stage registration
 
 
 class ConfigEvaluator:

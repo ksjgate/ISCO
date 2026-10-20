@@ -100,7 +100,7 @@ def test_gaussian_noise_statistics():
 
 def test_dropout_increases_at_grazing_incidence():
     cam, vp, T = _plane_view(120)
-    nm = NoiseModel(sigma0_m=0, dropout_p0=0.0, dropout_theta_c_deg=70, dropout_width_deg=5, flying_p=0)
+    nm = NoiseModel(sigma0_m=0, dropout_p0=0.0, dropout_theta_c_deg=70, dropout_width_deg=5, flying_p=0, edge_filter_m=0.0)
     head_on = apply_sensor_noise(vp, cam, T, nm, np.random.default_rng(0))
     vp.cos[:] = np.cos(np.radians(75))
     grazing = apply_sensor_noise(vp, cam, T, nm, np.random.default_rng(0))
@@ -114,8 +114,70 @@ def test_motion_blur_flat_unchanged_and_step_smoothed():
     # top-down camera: the belt axis (+x) projects onto the image rows (v), so a step
     # across v is smeared while a step across u would not be
     u, v = cam.pix_to_uv(vp.pix)
-    vp.depth = np.where(v < 140, 0.25, 0.248).astype(np.float32)          # 2 mm step
-    out = apply_motion_blur(vp, cam, T, np.array([1.0, 0, 0]), 1.0e-3)
+    vp.depth = np.where(v < 140, 0.25, 0.249).astype(np.float32)          # 1 mm step
+    out = apply_motion_blur(vp, cam, T, np.array([1.0, 0, 0]), 1.0e-3, jump_m=2e-3)
     _, vo = cam.pix_to_uv(out.pix)
     mid = (vo > 136) & (vo < 144)
-    assert np.any((out.depth[mid] > 0.2481) & (out.depth[mid] < 0.2499))
+    assert np.any((out.depth[mid] > 0.2491) & (out.depth[mid] < 0.2499))
+
+
+def test_motion_blur_invalidates_mixed_pixels_across_large_steps():
+    """A pixel whose exposure crosses a depth jump larger than the sensor's jump threshold
+    is invalidated (inconsistent code), not averaged into a point floating off the part."""
+    cam, vp, T = _plane_view(80)
+    u, v = cam.pix_to_uv(vp.pix)
+    vp.depth = np.where(v < 140, 0.25, 0.245).astype(np.float32)          # 5 mm step
+    out = apply_motion_blur(vp, cam, T, np.array([1.0, 0, 0]), 1.0e-3, jump_m=2e-3)
+    assert len(out) < len(vp)
+    assert not np.any((out.depth > 0.2451) & (out.depth < 0.2499))
+
+
+def test_edge_filter_removes_flying_pixels():
+    cam, vp, T = _plane_view(60)
+    fly = dict(sigma0_m=0.0, dropout_p0=0.0, dropout_theta_c_deg=89.9, flying_p=1.0)
+    raw = apply_sensor_noise(vp, cam, T, NoiseModel(**fly, edge_filter_m=0.0), np.random.default_rng(0))
+    assert np.any(raw.depth > 0.2501)                                    # veil points towards the belt
+    out = apply_sensor_noise(vp, cam, T, NoiseModel(**fly, edge_filter_m=2e-3), np.random.default_rng(0))
+    assert np.allclose(out.depth, 0.25) and len(out) >= 56 * 56          # silhouette ring (+ veil neighbours) dropped
+
+
+def test_unreachable_plan_skips_types_the_part_cannot_host():
+    from types import SimpleNamespace
+
+    from isco.datagen.variants import VariantSetSpec, placeable_unreachable, plan_instances
+
+    spec = VariantSetSpec.preset("mvp")
+    table = {"unreachable": {"surface": 0, "edge": 12}}           # only a hidden edge
+    types = placeable_unreachable(SimpleNamespace(difficulty_table=lambda: table), spec)
+    assert types == ["cut"]
+    plan = [p for p in plan_instances(spec, types) if p["role"] == "unreachable"]
+    assert len(plan) == spec.n_unreachable and {p["type"] for p in plan} == {"cut"}
+    # a hidden surface but no hidden edge: a cut becomes a surface chip, all types stay
+    chip = {"unreachable": {"surface": 120, "edge": 0}}
+    assert placeable_unreachable(SimpleNamespace(difficulty_table=lambda: chip), spec) == spec.unreachable_types
+    # all types placeable: the plan is unchanged (existing manifests stay valid)
+    full = {"unreachable": {"surface": 120, "edge": 40}}
+    assert placeable_unreachable(SimpleNamespace(difficulty_table=lambda: full), spec) == spec.unreachable_types
+    assert plan_instances(spec, spec.unreachable_types) == plan_instances(spec)
+    none = {"unreachable": {"surface": 0, "edge": 0}}
+    assert not [p for p in plan_instances(spec, placeable_unreachable(SimpleNamespace(difficulty_table=lambda: none), spec))
+                if p["role"] == "unreachable"]
+
+
+def test_cut_on_part_without_sharp_edges_is_a_surface_chip():
+    """Smooth (scan-derived, turned) parts have no sharp edge: a cut slices a chip off the
+    surface instead of failing."""
+    import trimesh
+
+    from isco.geometry.mesh_io import LabeledMesh
+
+    s = trimesh.creation.capsule(height=0.03, radius=0.006, count=[48, 48])
+    s.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [0, 1, 0]))
+    s.apply_translation([0, 0, 0.006 - s.bounds[0, 2]])
+    mesh = remesh_isotropic(LabeledMesh.from_trimesh(s), 6e-4)
+    gen = DefectGenerator(mesh, DefectDictionary(), seed=0, n_candidates=1500)
+    assert len(gen.edges.points) == 0
+    out, meta = gen.make(mesh, "cut", "easy", "L", np.random.default_rng(1))
+    tm = out.to_trimesh()
+    assert meta["cut_mode"] == "surface_chip" and tm.is_watertight
+    assert (out.face_label > 0).sum() > 0 and tm.volume < mesh.to_trimesh().volume
