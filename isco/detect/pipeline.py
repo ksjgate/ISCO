@@ -336,9 +336,18 @@ class DetectionPipeline:
                 result[role] = m
                 result[f"{role}_defects"] = recs
         if by_role.get("unreachable"):
+            # visibility ceiling: only controls that no slot can see at all count; controls
+            # whose footprint reaches a visible side are reported separately
             recs = records("unreachable")
             tau = scorer.threshold_at_fpr(val_scores, det.fpr)
-            result["unreachable"] = {"detected_frac": float(np.mean([d["score"] > tau for d in recs])), "n": len(recs)}
+            hidden = vis.hidden_ids() if vis is not None else {d["inst_id"] for d in recs}
+            for d in recs:
+                d["hidden"] = d["inst_id"] in hidden
+            rate = lambda ds: float(np.mean([d["score"] > tau for d in ds])) if ds else float("nan")  # noqa: E731
+            partly = [d for d in recs if not d["hidden"]]
+            result["unreachable"] = {"detected_frac": rate([d for d in recs if d["hidden"]]), "n": len(recs) - len(partly),
+                                     "n_partly_visible": len(partly), "detected_frac_partly_visible": rate(partly)}
+            result["unreachable_defects"] = recs
         if det.keep_point_scores and "report" in result:
             dps, dms = [], []
             for r in by_role["report"]:

@@ -52,6 +52,8 @@ class VisibilityTable:
         lo, hi = self.sensor.working_range_m
         with np.errstate(divide="ignore"):
             foot = zz / (fx * np.maximum(cos, 1e-6))
+        # can return a point at all: in line of sight within the sensor's hard 85 deg incidence cut
+        self.line_of_sight = z["vis"].astype(bool) & (cos >= np.cos(np.radians(85.0)))
         self.ok = z["vis"] & (cos >= np.cos(np.radians(p.theta_max_deg))) & (foot <= p.footprint_max_m) & (zz >= lo) & (zz <= hi)
         self.dens = np.where(z["vis"], cos * (p.density_ref_footprint_m * fx / np.maximum(zz, 1e-6)) ** 2, 0.0).astype(np.float32)
         ncos = z["nominal_cos"].astype(np.float32)
@@ -71,6 +73,13 @@ class VisibilityTable:
         roles = {r["inst_id"]: r["role"] for r in man["instances"]}
         types = {r["inst_id"]: r["type"] for r in man["instances"]}
         return cls(vis_dir(part_id, set_id, sensor_id) / "vis.npz", roles, types, params)
+
+    def hidden_ids(self, roles=("unreachable",)) -> set[str]:
+        """Defects none of whose surface samples is in line of sight of any slot (hence of
+        any configuration, rotation stages included): the valid visibility-ceiling controls."""
+        sel = np.isin(self.role, roles)
+        seen = self.line_of_sight[sel].any(axis=(1, 2))
+        return {i for i, v in zip(np.array(self.ids)[sel], seen) if not v}
 
     def per_defect(self, cfg: InspectionConfig, roles=("search",)) -> dict[str, np.ndarray]:
         views = sorted({v for _, v, _ in config_views(cfg, self.grid)})

@@ -142,10 +142,13 @@ def build_report(run_dir: str | Path, max_cams: int | None = 3, max_cycle_s: flo
     if "stage1" in figs:
         L += ["![stage1](stage1.png)", ""]
     if rec is not None and rec.get("unreachable"):
+        u = rec["unreachable"]
         L += ["## Visibility ceiling", "",
-              f"Control defects placed on surfaces no upper-hemisphere camera can see (belt contact) were detected at "
-              f"rate {_fmt(rec['unreachable']['detected_frac'])} (n = {rec['unreachable']['n']}); "
-              "they are excluded from the FNR above.", ""]
+              f"Control defects on surfaces no camera slot can see at all (belt contact) were detected at rate "
+              f"{_fmt(u['detected_frac'])} (n = {u['n']}); they are excluded from the FNR above."
+              + (f" {u['n_partly_visible']} further controls centred on the underside reach a visible side "
+                 f"(detected {_fmt(u.get('detected_frac_partly_visible'))}) and are not counted as unreachable."
+                 if u.get("n_partly_visible") else ""), ""]
     md = "\n".join(L)
     (out / "index.md").write_text(md)
     import markdown

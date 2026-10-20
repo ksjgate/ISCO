@@ -50,3 +50,27 @@ def test_visibility_occlusion_and_backfacing():
     assert not vis[0, 1]          # -x point back-facing for the +x camera
     assert vis[1, 1] and not vis[1, 0]
     assert z[1, 1] == pytest.approx(0.245, abs=1e-4)
+
+
+def test_hidden_ids_require_every_sample_out_of_sight(tmp_path):
+    """An unreachable control counts as hidden only if none of its surface samples is in
+    line of sight of any slot (a defect centred on the underside can reach a visible side)."""
+    import json
+
+    from isco.geometry.camera_model import SlotGrid
+    from isco.schemas.sensor import SensorModel
+    from isco.visibility.surrogate import VisibilityTable
+
+    g = SlotGrid()
+    J, K, N = 3, g.n_slots, 8
+    vis = np.zeros((J, K, N), bool)
+    vis[1, 40, 3] = True                                   # one sample of u_b seen by one slot
+    vis[2] = True                                          # ordinary visible defect
+    f = lambda *s: np.full(s, 0.9, np.float16)             # noqa: E731
+    np.savez(tmp_path / "vis.npz", inst_ids=np.array(["u_a", "u_b", "d_c"]), vis=vis, cos=f(J, K, N),
+             z=np.full((J, K, N), 0.25, np.float16), nominal_vis=np.ones((K, 4), bool), nominal_cos=f(K, 4),
+             nominal_z=np.full((K, 4), 0.25, np.float16))
+    (tmp_path / "vis.json").write_text(json.dumps({"grid": g.to_dict(), "sensor": SensorModel().model_dump(mode="json")}))
+    vt = VisibilityTable(tmp_path / "vis.npz", {"u_a": "unreachable", "u_b": "unreachable", "d_c": "report"},
+                         {"u_a": "dent", "u_b": "cut", "d_c": "hole"})
+    assert vt.hidden_ids() == {"u_a"}
