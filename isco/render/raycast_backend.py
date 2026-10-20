@@ -26,7 +26,7 @@ class RaycastRenderer:
     def _scene(self, mesh: LabeledMesh, T_world_part: np.ndarray):
         import open3d as o3d
 
-        scene = o3d.t.geometry.RaycastingScene()
+        scene = o3d.t.geometry.RaycastingScene(nthreads=self.n_threads)
         v = apply_T(np.asarray(T_world_part), mesh.vertices).astype(np.float32)
         part_gid = scene.add_triangles(o3d.core.Tensor(v), o3d.core.Tensor(mesh.faces.astype(np.uint32)))
         if self.occluder is not None:

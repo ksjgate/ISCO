@@ -69,6 +69,9 @@ _W: dict = {}
 
 
 def _init(part_id: str, set_id: str, sensor_id: str, det_json: str, proc_json: str, noise_json: str) -> None:
+    from ..utils.seeds import pin_worker
+
+    pin_worker(1)          # one core per worker: open3d's TBB/OpenMP pools follow the affinity mask
     from ..datagen.parts import load_part_mesh
     from .cad_distance import CadDistance
     from .coverage_scorer import CoverageScorer

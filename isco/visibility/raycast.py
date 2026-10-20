@@ -86,6 +86,9 @@ _W: dict = {}
 
 
 def _init(cfg: dict) -> None:
+    from ..utils.seeds import pin_worker
+
+    pin_worker(max(1, (__import__("os").cpu_count() or 8) // 8))
     _W.update(cfg)
     _W["camera"] = SensorModel.model_validate(cfg["sensor"]).camera()
     _W["occ"] = Occluder.load(cfg["occluder_path"]) if cfg.get("occluder_path") else Occluder.belt_plane()

@@ -101,6 +101,9 @@ _W: dict = {}
 def _init(meta_json: str, occluder_path: str | None, n_threads: int) -> None:
     import json
 
+    from ..utils.seeds import pin_worker
+
+    pin_worker(n_threads)
     meta = json.loads(meta_json)
     sensor = SensorModel.model_validate(meta["sensor"])
     occ = Occluder.load(occluder_path) if occluder_path else Occluder.belt_plane()
