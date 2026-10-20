@@ -81,3 +81,38 @@ def test_search_space_constraints(rng):
         c = sp.random_config(rng)
         assert sp.feasible(c.slots)
     assert set(sp.baselines()) >= {"top_1cam", "ring3_el40"}
+
+
+def test_shortlist_spreads_over_rotation_modes():
+    from types import SimpleNamespace
+
+    from isco.optim.search import SearchRunner
+    from isco.schemas.config import InspectionConfig
+
+    cands = []
+    for n in (1, 2, 3):
+        for rot, v in (("r90x3", 0.9), ("none", 0.5), ("r90x1", 0.7)):
+            for j in range(3):
+                c = InspectionConfig(slots=list(range(j * 10, j * 10 + n)), rotation=rot)
+                cands.append({"config": c.model_dump(mode="json"), "config_id": c.config_id, "n_cam": n,
+                              "surrogate": {"V_area": v - 0.01 * j}})
+    sl = SearchRunner(SimpleNamespace(surrogate_metric="V_area")).shortlist(cands, k=9, n_random=0)
+    assert {c.rotation for c in sl} == {"r90x3", "none", "r90x1"}
+    assert {c.n_cam for c in sl} == {1, 2, 3}
+
+
+def test_registrar_recovers_repositioning_error(box_mesh):
+    import trimesh
+
+    from isco.detect.merge import Registrar
+    from isco.geometry.transforms import apply_T, make_T, rot_z
+
+    tm = box_mesh.to_trimesh()
+    pts, fid = trimesh.sample.sample_surface_even(tm, 20000, seed=0)
+    nrm = np.asarray(tm.face_normals)[fid]
+    reg = Registrar(pts, nrm)
+    top = pts[pts[:, 2] > 0.002]                              # a partial (visible) cloud
+    T_err = make_T(rot_z(1.0), [0.5e-3, -0.3e-3, 0.0])
+    T, fit, rmse = reg.register(apply_T(T_err, top))
+    resid = np.linalg.norm(apply_T(T @ T_err, top) - top, axis=1)
+    assert np.median(resid) < 5e-5 and fit > 0.9

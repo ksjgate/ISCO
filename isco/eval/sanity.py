@@ -67,6 +67,10 @@ def e0_2(parts: list[str], set_id: str = "mvp", n_configs: int = 20, n_instances
 
     d = exp_dir("e0_2", out)
     q = FileJobQueue(repo_root() / "queue")
+    for _ in range(300):                       # the worker needs ~10-20 s to come up
+        if q.worker_alive():
+            break
+        time.sleep(1)
     if not q.worker_alive():
         raise RuntimeError("E0.2 needs the Isaac worker: `isco worker start` (or scripts/start_worker.sh)")
     process = C.process("inline_default")
@@ -268,5 +272,42 @@ def e0_5(parts: list[str], set_id: str = "mvp", n_workers: int = 20, out: str | 
                   f"{t['S']:.2f} / {t['M']:.2f} / {t['L']:.2f} |")
     md += ["", f"Mean pooled FNR at N2: **{pooled:.2f}** (target 0.2-0.6) -> scale_k "
                 f"{'kept at 1.0 (frozen)' if summ['in_target'] else f'recommended {rec_k}'}."]
+    (d / "summary.md").write_text("\n".join(md) + "\n")
+    return d
+
+
+# --------------------------------------------------------------------- result sanity
+def result_sanity(parts: list[str], set_id: str = "mvp", n_workers: int = 20, out: str | None = None, **_) -> Path:
+    """Plan verification item 7: (a) FNR roughly non-increasing with camera count along
+    nested rings, (b) unreachable-control defects ~never detected (FNR ~ 1), (c) memory
+    bank vs CAD-distance baseline on the same configurations."""
+    from ..optim.evaluator import ConfigEvaluator
+
+    d = exp_dir("result_sanity", out)
+    rows = []
+    for pid in parts:
+        res = {"part": pid}
+        for det in ("fpfh_bank", "cad_distance"):
+            ev = ConfigEvaluator(pid, set_id, C.detector(det), C.process("inline_default"), C.noise("N2"), n_workers=n_workers)
+            try:
+                b = ev.space.baselines()
+                seq = [b["top_1cam"], b["ring2_el60"], b["ring3_el40"], b["ring4_el40"], b["ring6_el40"]]
+                recs = [ev.evaluate(c) for c in seq]
+            finally:
+                ev.close()
+            fn = [r["report"]["fnr"] for r in recs]
+            res[det] = {"n_cam": [r["n_cam"] for r in recs], "fnr_report": fn,
+                        "auroc_report": [r["report"]["auroc"] for r in recs],
+                        "non_increasing_steps": int(sum(fn[i + 1] <= fn[i] + 0.02 for i in range(len(fn) - 1))),
+                        "unreachable_detected_frac": [r.get("unreachable", {}).get("detected_frac") for r in recs]}
+        rows.append(res)
+    write_json(d / "summary.json", rows)
+    md = ["# Result sanity (plan verification 7)", "",
+          "| part | detector | cameras | FNR report | AUROC | unreachable detected |", "|---|---|---|---|---|---|"]
+    for r in rows:
+        for det in ("fpfh_bank", "cad_distance"):
+            x = r[det]
+            md.append(f"| {r['part']} | {det} | {x['n_cam']} | {[round(v, 2) for v in x['fnr_report']]} | "
+                      f"{[round(v, 2) for v in x['auroc_report']]} | {[None if v is None else round(v, 2) for v in x['unreachable_detected_frac']]} |")
     (d / "summary.md").write_text("\n".join(md) + "\n")
     return d

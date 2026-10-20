@@ -7,12 +7,19 @@ from ..utils.io import append_jsonl, read_jsonl
 
 
 class ResultsStore:
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, tracker=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.tracker = tracker
+        self._n = 0
 
     def append(self, row: dict) -> None:
         append_jsonl(self.path, row)
+        if self.tracker is not None and row.get("stage") == 2:
+            o = row.get("objectives", {})
+            self.tracker.log({"fnr_search": o.get("fnr"), "n_cam": o.get("n_cam"), "cycle_time_s": o.get("cycle_time_s"),
+                              "fnr_report": (row.get("report") or {}).get("fnr")}, step=self._n)
+            self._n += 1
 
     def rows(self, **where) -> list[dict]:
         out = []

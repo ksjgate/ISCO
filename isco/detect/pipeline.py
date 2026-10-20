@@ -51,6 +51,7 @@ class DetectorConfig(BaseModel):
     coverage_smooth_m: float = 1.0e-3
     template_samples: int = 30000
     registration: Literal["icp", "oracle", "none"] = "icp"
+    stage_registration: bool = True  # register each rotation stage separately before merging
     sor_neighbors: int = 20          # statistical outlier removal (0 disables)
     sor_std_ratio: float = 2.0
     fpr: float = 0.01
@@ -98,7 +99,7 @@ def _work(task: tuple[dict, str, int]) -> dict:
     mc = compose_instance(_W["cache"], inst, cfg, _W["process"], _W["noise"], seed, det.voxel_m,
                           _W["registrar"], det.registration,
                           (det.sor_neighbors, det.sor_std_ratio) if det.sor_neighbors > 0 else None,
-                          keep_views=det.kind == "dinov2_bank")
+                          keep_views=det.kind == "dinov2_bank", stage_registration=det.stage_registration)
     out = {"inst_id": inst["inst_id"], "n_points": int(len(mc.xyz)), "n_raw": mc.n_raw,
            "reg_fitness": mc.reg_fitness, "reg_rmse": mc.reg_rmse,
            "n_defect_points": int((mc.label >= 2).sum()), "label": mc.label}
@@ -207,65 +208,90 @@ class DetectionPipeline:
     def evaluate(self, cfg: InspectionConfig, seed: int = 0, roles=("bank", "val", "search", "report", "unreachable")) -> dict:
         det = self.det
         t0 = time.time()
-        tasks = [(r, cfg.model_dump_json(), seed) for r in self.insts if r["role"] in roles]
-        res = {}
-        for out in self.pool().imap_unordered(_work, tasks, chunksize=2):
+        # bank instances first: as soon as all of them are back, the memory bank / coverage
+        # statistics are fitted while the workers keep processing the remaining
+        # instances, which are then scored as they arrive (main-process work overlaps the
+        # workers; scored features are dropped right away to bound memory)
+        order = {"bank": 0, "val": 1, "search": 2, "report": 3, "unreachable": 4}
+        todo = sorted([r for r in self.insts if r["role"] in roles], key=lambda r: order.get(r["role"], 9))
+        tasks = [(r, cfg.model_dump_json(), seed) for r in todo]
+        role_of = {r["inst_id"]: r["role"] for r in todo}
+        bank_ids = {r["inst_id"] for r in todo if r["role"] == "bank"}
+        res, pending = {}, []
+        img, pts_scores, cov = {}, {}, {}
+        state = {"score_fn": None, "cs": None, "bank_size": 0}
+        t_score = 0.0
+
+        def fit_bank():
+            nonlocal t_score
+            t1 = time.time()
+            bank_out = [res[i] for i in bank_ids if i in res]
+            if det.kind in ("fpfh_bank", "dinov2_bank"):
+                from .memory_bank import MemoryBank
+
+                if det.kind == "fpfh_bank":
+                    feat = lambda o: o["feats"].astype(np.float32) if o.get("feats") is not None else None  # noqa: E731
+                else:
+                    dino = self._dino_model()
+
+                    def feat(o):
+                        if o.get("imgs") is None:
+                            return None
+                        f = dino(o["imgs"], o["rep_view"], o["coords"].astype(np.float32))
+                        if det.xyz_weight > 0:
+                            f = np.concatenate([f, o["xyz"] * 1e3 * det.xyz_weight], axis=1)
+                        return f.astype(np.float32)
+                feats = [f for f in (feat(o) for o in bank_out) if f is not None]
+                bank = MemoryBank(det.coreset_ratio, det.coreset_max, self.device, seed, det.bank_presample).fit(feats)
+                state["score_fn"] = lambda o: (bank.score(f) if (f := feat(o)) is not None else np.zeros(0))
+                state["bank_size"] = bank.size
+            else:
+                state["score_fn"] = lambda o: o["cad"] if o.get("cad") is not None else np.zeros(0)
+            if det.use_coverage:
+                obs_bank = [o["observed"] for o in bank_out if o.get("observed") is not None]
+                if obs_bank:
+                    cs = self._coverage_scorer()
+                    cs.fit(obs_bank)
+                    state["cs"] = cs
+            for o in bank_out:                      # bank features are no longer needed
+                o.pop("feats", None)
+                o.pop("imgs", None)
+            t_score += time.time() - t1
+
+        def score(o):
+            nonlocal t_score
+            t1 = time.time()
+            i = o["inst_id"]
+            s_img, s_pt = _agg(state["score_fn"](o), o.get("nbr"), det)
+            img[i] = s_img
+            if det.keep_point_scores:
+                pts_scores[i] = s_pt
+            if state["cs"] is not None:
+                cov[i] = state["cs"].image_score(o["observed"]) if o.get("observed") is not None else 0.0
+            for k in ("feats", "imgs", "coords", "cad", "nbr", "observed"):
+                o.pop(k, None)
+            t_score += time.time() - t1
+
+        for out in self.pool().imap(_work, tasks, chunksize=2):
             res[out["inst_id"]] = out
+            if role_of[out["inst_id"]] == "bank":
+                if bank_ids.issubset(res):
+                    fit_bank()
+                    for o in pending:
+                        score(o)
+                    pending = []
+                continue
+            if state["score_fn"] is None:
+                pending.append(out)
+            else:
+                score(out)
+        if state["score_fn"] is None:            # no bank role requested
+            fit_bank()
+            for o in pending:
+                score(o)
         t_work = time.time() - t0
         by_role = {role: [r for r in self.insts if r["role"] == role and r["inst_id"] in res] for role in roles}
-        # point scores
-        t1 = time.time()
-        if det.kind == "fpfh_bank":
-            from .memory_bank import MemoryBank
-
-            bank_feats = [res[r["inst_id"]]["feats"].astype(np.float32) for r in by_role["bank"] if res[r["inst_id"]]["feats"] is not None]
-            bank = MemoryBank(det.coreset_ratio, det.coreset_max, self.device, seed, det.bank_presample).fit(bank_feats)
-            score_fn = lambda o: bank.score(o["feats"].astype(np.float32)) if o["feats"] is not None else np.zeros(0)  # noqa: E731
-            bank_size = bank.size
-        elif det.kind == "dinov2_bank":
-            from .memory_bank import MemoryBank
-
-            dino = self._dino_model()
-
-            def dfeat(o):
-                f = dino(o["imgs"], o["rep_view"], o["coords"].astype(np.float32))
-                if det.xyz_weight > 0:
-                    f = np.concatenate([f, o["xyz"] * 1e3 * det.xyz_weight], axis=1)
-                return f.astype(np.float32)
-
-            bank = MemoryBank(det.coreset_ratio, det.coreset_max, self.device, seed, det.bank_presample).fit(
-                [dfeat(res[r["inst_id"]]) for r in by_role["bank"] if res[r["inst_id"]].get("imgs") is not None])
-            score_fn = lambda o: bank.score(dfeat(o)) if o.get("imgs") is not None else np.zeros(0)  # noqa: E731
-            bank_size = bank.size
-        else:
-            score_fn = lambda o: o["cad"] if o.get("cad") is not None else np.zeros(0)  # noqa: E731
-            bank_size = 0
-        img, pts_scores = {}, {}
-        for role in roles:
-            if role == "bank":
-                continue
-            for r in by_role[role]:
-                o = res[r["inst_id"]]
-                s_img, s_pt = _agg(score_fn(o), o.get("nbr"), det)
-                img[r["inst_id"]] = s_img
-                if det.keep_point_scores:
-                    pts_scores[r["inst_id"]] = s_pt
-        t_score = time.time() - t1
-        # coverage
-        cov = {}
-        if det.use_coverage:
-            from .coverage_scorer import CoverageScorer
-
-            obs_bank = [res[r["inst_id"]]["observed"] for r in by_role["bank"] if res[r["inst_id"]]["observed"] is not None]
-            if obs_bank:
-                cs = self._coverage_scorer()
-                cs.fit(obs_bank)
-                for role in roles:
-                    if role == "bank":
-                        continue
-                    for r in by_role[role]:
-                        o = res[r["inst_id"]]
-                        cov[r["inst_id"]] = cs.image_score(o["observed"]) if o["observed"] is not None else 0.0
+        bank_size = state["bank_size"]
         # combine (z-score against validation normals)
         val_ids = [r["inst_id"] for r in by_role.get("val", [])]
         f_val = np.array([img[i] for i in val_ids])

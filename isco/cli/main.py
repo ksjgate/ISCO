@@ -260,6 +260,42 @@ def sim_settle(part: str, n_drops: int = 100, speeds: str = "0.1,0.3,0.6"):
                                           output_path=str(data_root() / "settle" / f"{part}.json"))))
 
 
+@sim_app.command("check-rig")
+def sim_check_rig(part: str, set_id: str = "mvp"):
+    """Render the nominal part from all 96 slots in Isaac and cross-check slot validity
+    (occluder ray test) against what the cameras actually see (plan: check-rig)."""
+    import numpy as np
+
+    from ..datagen.parts import load_part
+    from ..optim.space import SearchSpace
+    from ..render.occluder import Occluder
+    from ..render.pixels import ViewPixels
+    from ..render.slot_cache import SlotCache
+    from ..schemas.job import InstanceRef, RenderSlotsPayload
+    from ..utils.io import write_json
+
+    spec = load_part(part)
+    cache = SlotCache.open(part, set_id)
+    grid = cache.grid
+    out = repo_root() / "runs" / "check_rig" / part
+    res = _submit("render_slots", RenderSlotsPayload(
+        part_id=part, instances=[InstanceRef(inst_id="nominal", mesh_path=str(resolve_data_path(spec.mesh_fine)),
+                                             T_world_part=np.eye(4).tolist())],
+        slot_ids=list(range(grid.n_slots)), grid=grid.to_dict(), sensor=cache.sensor, focus_m=spec.focus_m,
+        output_dir=str(out)))
+    space = SearchSpace(grid, np.asarray(spec.focus_m), Occluder.default(), working_range=cache.sensor.working_range_m)
+    px = {k: len(ViewPixels.load(out / "nominal" / f"slot_{k:03d}.npz")) for k in range(grid.n_slots)}
+    med = float(np.median([v for v in px.values() if v > 0])) if any(px.values()) else 0.0
+    rows = [{"slot": k, "valid": k in space.valid_slots, "isaac_part_px": px[k],
+             "reason": space.invalid_reason.get(k)} for k in range(grid.n_slots)]
+    flagged = [r for r in rows if r["valid"] and r["isaac_part_px"] < 0.05 * med]
+    summary = {"job": res["status"], "n_valid": len(space.valid_slots), "n_slots": grid.n_slots,
+               "median_part_px": med, "valid_but_part_not_seen": flagged,
+               "invalid": [r for r in rows if not r["valid"]]}
+    write_json(out / "check_rig.json", {"summary": summary, "rows": rows})
+    _echo({k: v for k, v in summary.items() if k != "invalid"} | {"n_invalid": len(summary["invalid"])})
+
+
 @sim_app.command("rgb")
 def sim_rgb(part: str, slots: str, out: str = "runs/rgb"):
     """RGB snapshots of a rig (demo / report figures) through the Isaac worker."""

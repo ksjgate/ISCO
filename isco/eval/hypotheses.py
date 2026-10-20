@@ -38,7 +38,7 @@ from ..schemas.config import InspectionConfig
 from ..utils.io import read_jsonl, write_json
 from ..utils.logging import get_logger
 from .mvtec3d import e0_6, e5b  # noqa: F401  (CLI entry points)
-from .sanity import e0_2, e0_3, e0_4, e0_5, exp_dir, reference_config  # noqa: F401  (CLI entry points)
+from .sanity import e0_2, e0_3, e0_4, e0_5, exp_dir, reference_config, result_sanity  # noqa: F401  (CLI entry points)
 
 log = get_logger(__name__)
 
@@ -60,6 +60,16 @@ def _search(ev: ConfigEvaluator, d: Path, tag: str, method: str, budget: int, se
         cands = r1.stage1(stage1_trials, stage1_random, seed=seed)
         warm = r1.shortlist(cands, min(k, budget // 2), k_random, seed=seed)
     return SearchRunner(ev, st, fixed).run(method, budget, seed, warm=warm)
+
+
+def _best(rows: list[dict], max_cams: int | None = 3, max_cycle_s: float | None = 1.5) -> dict:
+    """Recommended configuration under the constraints; falls back to the overall best
+    search-set FNR if no evaluated configuration satisfies them (logged)."""
+    b = recommend(rows, max_cams, max_cycle_s)
+    if b is None:
+        log.warning("no evaluated configuration satisfies the constraints; using the overall best")
+        b = recommend(rows, None, None)
+    return b
 
 
 def _kendall(a, b) -> float:
@@ -117,7 +127,7 @@ def e1(parts: list[str], set_id: str = "mvp", seeds=(0,), budget: int = 40, n_wo
             rows = []
             for s in seeds:
                 rows += _search(ev, d, f"search_{pid}", "bo_warm", budget, s)
-            b = recommend(rows, **CONSTRAINT)
+            b = _best(rows, **CONSTRAINT)
             best[pid] = b["config"]
             log.info(f"E1 {pid}: best {b['config']} FNR(search) {b['objectives']['fnr']:.2f}")
         finally:
@@ -288,7 +298,7 @@ def e4(parts: list[str], set_id: str = "mvp", seeds=(0,), budget: int = 40, n_wo
                 for s in seeds:
                     rows += _search(ev, d, f"{pid}_{proc}", "bo_warm", budget, s)
                 cons = {"max_cams": 3, "max_cycle_s": None if proc == "static_capture" else 1.5}
-                opt[proc] = recommend(rows, **cons)
+                opt[proc] = _best(rows, **cons)
             finally:
                 ev.close()
         s_cfg = InspectionConfig(**opt["static_capture"]["config"])
@@ -439,7 +449,7 @@ def e7b(parts: list[str], seeds=(0,), budget: int = 40, n_workers: int = 20, out
             ev = _ev(pid, sid, n_workers)
             try:
                 rows = _search(ev, d, f"{pid}_{sid}", "bo_warm", budget, seeds[0])
-                b = recommend(rows, **CONSTRAINT)
+                b = _best(rows, **CONSTRAINT)
                 best[sid] = {"config": b["config"], "fnr_report": b["report"]["fnr"]}
             finally:
                 ev.close()

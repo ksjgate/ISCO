@@ -65,8 +65,16 @@ def run_search(part_id: str, set_id: str = "mvp", run_id: str | None = None, met
         "space": (space_params or SpaceParams()).model_dump(mode="json")})
     write_json(run_dir / "env.json", env_info())
     ev = ConfigEvaluator(part_id, set_id, detector, process, noise, n_workers=n_workers, space_params=space_params)
+    # rows are rewritten on every (re)run; finished evaluations come back from the
+    # evaluation cache, so a resumed run reproduces the same rows without duplicates
+    for f in ("stage1.jsonl", "stage2.jsonl"):
+        if (run_dir / f).exists():
+            (run_dir / f).unlink()
+    from ..utils.tracking import Tracker
+
+    tracker = Tracker(run_name=run_id, config={"part_id": part_id, "set_id": set_id, "methods": list(methods)})
     s1 = ResultsStore(run_dir / "stage1.jsonl")
-    s2 = ResultsStore(run_dir / "stage2.jsonl")
+    s2 = ResultsStore(run_dir / "stage2.jsonl", tracker)
     t0 = time.time()
     try:
         runner1 = SearchRunner(ev, s1, fixed)
@@ -78,6 +86,7 @@ def run_search(part_id: str, set_id: str = "mvp", run_id: str | None = None, met
                 runner2.run(m, budget, seed, warm=warm)
     finally:
         ev.close()
+        tracker.finish()
     log.info(f"run {run_id}: {ev.n_stage2_computed} stage-2 evaluations computed in {time.time() - t0:.0f}s")
     if report:
         from ..report.render_report import build_report

@@ -153,7 +153,7 @@ def build_slot_cache(part_id: str, set_id: str, sensor: SensorModel | None = Non
         occluder_path = str(default_occ) if default_occ.exists() else None
     cam = sensor.camera()
     focus = np.asarray(spec.focus_m)
-    yaw_random = man["spec"]["pose"]["yaw_mode"] == "random"
+    yaw_random = man["spec"].get("pose", {}).get("yaw_mode", "guided") == "random"   # real sets have no pose spec
     rois = slot_rois(cam, grid, focus, np.asarray(spec.extents_m), yaw_random=yaw_random)
     slots = []
     for k in range(grid.n_slots):

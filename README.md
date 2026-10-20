@@ -97,8 +97,13 @@ isco worker status
 isco sim export-occluder                         # conveyor meshes -> data/conveyor/occluder.npz
 isco sim settle fusion_51876                     # physics drops -> data/settle/<part>.json
 isco sim rgb fusion_51876 --slots 12,16,20       # RGB snapshots of a rig
+isco sim check-rig fusion_51876                  # render all 96 slots, cross-check slot validity
 isco worker stop
 ```
+
+`bash scripts/smoke_gate.sh [part] [slots]` is the one-command gate: it starts the worker,
+renders three instances from two slots in Isaac Sim and compares them with the slot
+cache, evaluates one two-camera configuration and prints FNR@1%FPR and cost as JSON.
 
 The worker renders `distance_to_image_plane` depth, semantic labels (part / defect) and
 normals with the same pinhole conventions as the embree renderer used for the bulk slot
@@ -138,6 +143,17 @@ kept moving it). `bash scripts/isaac_regression.sh` reruns the three commands.
 
 Results go to `runs/exp/<name>/summary.json` (+ figures). Real-defect variant sets for
 `e5` are built with `isco.eval.real_parts.build_mulsen_real_set`.
+`bash scripts/run_experiments.sh [first_step]` runs the whole prioritised queue (demo,
+demo assets, gate, E0 calibration, E1–E8); every stage-2 evaluation is cached in
+`data/evalcache/`, so the queue can be stopped and restarted. `scripts/make_demo_assets.py`
+writes the mid-term demo figures (baseline rigs per part, defect examples, coverage maps,
+Isaac RGB of the recommended rig).
+
+Detectors (`configs/detector/`): `fpfh_bank` (default, multi-scale FPFH memory bank),
+`cad_distance` (training-free baseline: distance to the nominal CAD after ICP) and
+`dinov2_bank` (DINOv2-S/14 features of rendered normal-map views back-projected to points).
+Set `ISCO_WANDB=1` to also log search runs to Weights & Biases (optional; `wandb` is not
+installed by default).
 
 ## Configuration
 

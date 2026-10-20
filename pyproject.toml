@@ -29,9 +29,6 @@ isco = "isco.cli.main:main"
 [tool.setuptools.packages.find]
 include = ["isco*"]
 
-[tool.setuptools.package-data]
-isco = ["report/templates/*.j2"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
 markers = [

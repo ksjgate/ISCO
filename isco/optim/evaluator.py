@@ -22,7 +22,7 @@ from .cost import CostModel
 from .space import SearchSpace, SpaceParams
 
 #: bump when stage-2 semantics change so cached evaluations are not reused
-EVAL_VERSION = "2026-10-20.1"
+EVAL_VERSION = "2026-10-20.2"   # .2: robust registration + per-stage registration
 
 
 class ConfigEvaluator:
@@ -57,10 +57,13 @@ class ConfigEvaluator:
                 "surrogate": m, "objectives": obj, "n_cam": cfg.n_cam}
 
     def _key(self, cfg: InspectionConfig, seed: int) -> str:
+        # exclude_defaults: adding a new option with a behaviour-preserving default must
+        # not invalidate cached evaluations (semantic changes bump EVAL_VERSION instead)
         return self.cache.key(v=EVAL_VERSION, cfg=cfg.model_dump(mode="json"), part=self.part_id, set=self.set_id,
                               man=self.manifest["spec_hash"], sensor=self.sensor_id,
-                              process=self.process.model_dump(mode="json"), noise=self.noise.model_dump(mode="json"),
-                              det=self.detector.model_dump(mode="json"), seed=seed)
+                              process=self.process.model_dump(mode="json", exclude_defaults=True),
+                              noise=self.noise.model_dump(mode="json", exclude_defaults=True),
+                              det=self.detector.model_dump(mode="json", exclude_defaults=True), seed=seed)
 
     def pipeline(self) -> DetectionPipeline:
         if self._pipe is None:

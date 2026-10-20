@@ -111,28 +111,33 @@ class SearchRunner:
 
     def shortlist(self, cands: list[dict], k: int = 30, n_random: int = 10, metric: str | None = None,
                   seed: int = 0) -> list[InspectionConfig]:
-        """Top surrogate configs spread over camera counts + random ones (protocol)."""
+        """Top surrogate configurations spread over (camera count x rotation mode) groups,
+        round-robin, plus random ones. Grouping by rotation matters: the visibility
+        surrogate always rewards extra (rotated) views, so a plain top-k per camera count
+        warm-started the search with 90-deg x3 rigs only (demo run, 2026-10-20)."""
         metric = metric or self.ev.surrogate_metric
         rng = np.random.default_rng(seed)
-        by_n: dict[int, list[dict]] = {}
+        groups: dict[tuple, list[dict]] = {}
         for c in cands:
-            by_n.setdefault(c["n_cam"], []).append(c)
-        n_levels = sorted(by_n)
-        per_n = max(1, (k - n_random) // max(len(n_levels), 1))
-        chosen, ids = [], set()
-        for n in n_levels:
-            best = sorted(by_n[n], key=lambda c: -c["surrogate"][metric])
-            # diversity: prefer distinct slot sets first
-            slot_sets = set()
-            for c in best:
-                key = tuple(c["config"]["slots"])
-                if key in slot_sets:
-                    continue
-                slot_sets.add(key)
-                chosen.append(c)
-                ids.add(c["config_id"])
-                if len(slot_sets) >= per_n:
-                    break
+            groups.setdefault((c["n_cam"], c["config"]["rotation"]), []).append(c)
+        for g in groups.values():
+            g.sort(key=lambda c: -c["surrogate"][metric])
+        keys = sorted(groups)
+        chosen, ids, slot_sets = [], set(), set()
+        n_top = max(1, k - n_random)
+        depth = 0
+        while len(chosen) < n_top and any(depth < len(groups[g]) for g in keys):
+            for g in keys:
+                if depth < len(groups[g]):
+                    c = groups[g][depth]
+                    key = (tuple(c["config"]["slots"]), c["config"]["rotation"])
+                    if key not in slot_sets:
+                        slot_sets.add(key)
+                        chosen.append(c)
+                        ids.add(c["config_id"])
+                        if len(chosen) >= n_top:
+                            break
+            depth += 1
         rest = [c for c in cands if c["config_id"] not in ids]
         for i in rng.permutation(len(rest))[: max(0, k - len(chosen))]:
             chosen.append(rest[i])

@@ -98,7 +98,7 @@ def _o3d_pcd(v: np.ndarray, voxel: float):
 
 def register_scan(src_v: np.ndarray, tgt_v: np.ndarray, voxel: float, seed: int = 0, n_restarts: int = 3) -> tuple[np.ndarray, float, float]:
     """Global (FPFH + RANSAC) then point-to-plane ICP registration of a scan onto the
-    template, both in scanner units. Returns (T_tgt_src, fitness, inlier RMSE)."""
+    template, both in scanner units. Returns (T_tgt_src, fitness@2 voxels, inlier RMSE)."""
     import open3d as o3d
 
     reg = o3d.pipelines.registration
@@ -115,9 +115,13 @@ def register_scan(src_v: np.ndarray, tgt_v: np.ndarray, voxel: float, seed: int 
                                    reg.ICPConvergenceCriteria(max_iteration=60))
         icp = reg.registration_icp(s, t, voxel * 0.4, icp.transformation, reg.TransformationEstimationPointToPlane(),
                                    reg.ICPConvergenceCriteria(max_iteration=60))
-        if icp.fitness > best[1] + 1e-6 or (abs(icp.fitness - best[1]) < 1e-6 and icp.inlier_rmse < best[2]):
-            best = (np.asarray(icp.transformation), float(icp.fitness), float(icp.inlier_rmse))
-        if best[1] > 0.9:
+        # acceptance fitness at 2 voxels: two *different* physical parts never agree to the
+        # 0.4-voxel refinement tolerance (fitness ~0.28 for good alignments with a 0.1 mm
+        # median distance), so judging at that tolerance rejected correct registrations
+        ev = reg.evaluate_registration(s, t, voxel * 2.0, icp.transformation)
+        if ev.fitness > best[1] + 1e-6 or (abs(ev.fitness - best[1]) < 1e-6 and ev.inlier_rmse < best[2]):
+            best = (np.asarray(icp.transformation), float(ev.fitness), float(ev.inlier_rmse))
+        if best[1] > 0.95:
             break
     return best
 
@@ -143,7 +147,7 @@ def _face_labels_from_gt(tm: trimesh.Trimesh, gt: np.ndarray | None, tol_mm: flo
 
 
 def build_mulsen_real_set(cat: str, set_id: str = "real", n_bank: int = 40, max_val: int = 100, seed: int = 0,
-                         min_fitness: float = 0.6, overwrite: bool = False) -> dict:
+                         min_fitness: float = 0.8, overwrite: bool = False, max_tests: int | None = None) -> dict:
     """Variant set from *real* MulSen-AD scans (normals: train; defects: geometric tests)."""
     from ..datagen.defects import visible_direction_count, difficulty_of
     from ..datagen.normal_variation import PoseParams, sample_pose
@@ -200,20 +204,25 @@ def build_mulsen_real_set(cat: str, set_id: str = "real", n_bank: int = 40, max_
                "T_world_part": Tp.tolist(), "pose": pinfo, "variation": {"real_scan": True}, "n_faces": int(len(tm.faces)),
                "reg_fitness": fit, "reg_rmse_mm": rmse}
         if dtype != "normal":
-            fm = lab > 0
+            fm = np.flatnonzero(lab > 0)
             tmr = lm.to_trimesh()
             c = tmr.triangles_center[fm].mean(axis=0)
-            n = tmr.face_normals[fm].mean(axis=0)
-            n /= max(np.linalg.norm(n), 1e-12)
-            kv = int(visible_direction_count(lm, c[None], n[None])[0])
+            # difficulty from up to 64 defect faces (median visible-direction count): a
+            # single centroid misclassifies large or curved defect regions
+            sel = fm if len(fm) <= 64 else np.random.default_rng(k).choice(fm, 64, replace=False)
+            ks = visible_direction_count(lm, tmr.triangles_center[sel], tmr.face_normals[sel])
+            kv = int(np.median(ks))
             rec["difficulty"] = str(difficulty_of(np.array([kv]))[0])
-            rec["defect"] = {"type": dtype, "center_m": c.tolist(), "normal": n.tolist(), "k_visible": kv,
-                             "area_m2": float(tmr.area_faces[fm].sum()), "n_defect_faces": int(fm.sum()), "real": True}
+            rec["defect"] = {"type": dtype, "center_m": c.tolist(), "k_visible": kv,
+                             "visible_face_fraction": float((ks > 0).mean()),
+                             "area_m2": float(tmr.area_faces[fm].sum()), "n_defect_faces": int(len(fm)), "real": True}
         records.append(rec)
 
     for j, p in enumerate(train[1: 1 + n_bank + max_val]):
         add(p, "bank" if j < n_bank else "val", "normal", None, j)
     order = rng_split.permutation(len(tests))
+    if max_tests is not None:
+        order = order[:max_tests]
     for j, ti in enumerate(order):
         d, p = tests[ti]
         add(p, "search" if j % 2 == 0 else "report", d, _gt_points(cat, d, Path(p).stem), 1000 + j)

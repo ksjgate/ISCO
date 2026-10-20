@@ -83,32 +83,62 @@ def statistical_outlier_mask(xyz: np.ndarray, nb: int = 20, std_ratio: float = 2
 
 
 class Registrar:
-    """Point-to-plane ICP of a merged cloud onto the nominal template surface."""
+    """Rigid registration of a merged (partial) cloud onto the nominal template surface.
 
-    def __init__(self, template_pts: np.ndarray, template_nrm: np.ndarray):
+    Initialisations: identity and the alignment of robust xy bounding-box centres (the
+    cloud mostly covers the part's footprint). Each runs a coarse point-to-point ICP and
+    two point-to-plane refinements; if the best inlier fraction is below ``refit_below``
+    a small multi-start grid (yaw +-4/8 deg, xy +-2 mm) is tried. Rationale: on parts with
+    repeated features (ribs, slots) a single ICP from identity sometimes locked one feature
+    period off (fusion_51876 validation normals: z -1 mm / xy 4-5 mm, fitness 0.85 vs 0.96),
+    which made the coverage score flag *normal* parts and inflated the 1 %-FPR threshold.
+    """
+
+    def __init__(self, template_pts: np.ndarray, template_nrm: np.ndarray, refit_below: float = 0.92):
         import open3d as o3d
 
         self.o3d = o3d
         self.tgt = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(template_pts.astype(np.float64)))
         self.tgt.normals = o3d.utility.Vector3dVector(template_nrm.astype(np.float64))
+        lo, hi = np.percentile(template_pts[:, :2], [2, 98], axis=0)
+        self.t_center = (lo + hi) / 2.0
+        self.refit_below = refit_below
 
-    def register(self, xyz: np.ndarray) -> tuple[np.ndarray, float, float]:
-        o3d = self.o3d
-        src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz.astype(np.float64)))
-        reg = o3d.pipelines.registration
-        T = np.eye(4)
-        for dmax, it, est in ((6e-3, 30, reg.TransformationEstimationPointToPoint()),
+    def _icp(self, src, T0):
+        reg = self.o3d.pipelines.registration
+        T = T0
+        r = None
+        for dmax, it, est in ((3e-3, 30, reg.TransformationEstimationPointToPoint()),
                               (1.5e-3, 40, reg.TransformationEstimationPointToPlane()),
                               (0.6e-3, 30, reg.TransformationEstimationPointToPlane())):
             r = reg.registration_icp(src, self.tgt, dmax, T, est, reg.ICPConvergenceCriteria(max_iteration=it))
             T = r.transformation
         return np.asarray(T), float(r.fitness), float(r.inlier_rmse)
 
+    def register(self, xyz: np.ndarray) -> tuple[np.ndarray, float, float]:
+        o3d = self.o3d
+        src = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(xyz.astype(np.float64)))
+        lo, hi = np.percentile(xyz[:, :2], [2, 98], axis=0)
+        dxy = self.t_center - (lo + hi) / 2.0
+        inits = [np.eye(4), make_T(None, [dxy[0], dxy[1], 0.0])]
+        best = max((self._icp(src, T0) for T0 in inits), key=lambda r: (round(r[1], 3), -r[2]))
+        if best[1] < self.refit_below:
+            for yaw in (-8.0, -4.0, 4.0, 8.0):
+                for ox, oy in ((0, 0), (2e-3, 0), (-2e-3, 0), (0, 2e-3), (0, -2e-3)):
+                    c = (lo + hi) / 2.0
+                    T0 = make_T(None, [c[0] + dxy[0] + ox, c[1] + dxy[1] + oy, 0]) @ make_T(rot_z(yaw)) @ make_T(None, [-c[0], -c[1], 0])
+                    r = self._icp(src, T0)
+                    if (round(r[1], 3), -r[2]) > (round(best[1], 3), -best[2]):
+                        best = r
+                if best[1] >= self.refit_below:
+                    break
+        return best
+
 
 def compose_instance(cache: SlotCache, inst: dict, cfg: InspectionConfig, process: ProcessParams, noise: NoiseModel,
                      seed: int, voxel: float, registrar: Registrar | None,
                      registration: str = "icp", sor: tuple[int, float] | None = (20, 2.0),
-                     keep_views: bool = False) -> MergedCloud:
+                     keep_views: bool = False, stage_registration: bool = False) -> MergedCloud:
     """Random streams are keyed so that a view shared by two configurations receives
     the *same* sensor-noise realisation (common random numbers for paired comparisons)."""
     from ..utils.seeds import rng_for
@@ -129,7 +159,7 @@ def compose_instance(cache: SlotCache, inst: dict, cfg: InspectionConfig, proces
         else:
             t = np.r_[rng.normal(0.0, process.rot_reposition_sigma_m, 2), 0.0]
             stage_T[th] = make_T(rot_z(rng.normal(0.0, process.rot_yaw_sigma_deg)), t)
-    xs, ls, ds, vids, pids = [], [], [], [], []
+    xs, ls, ds, vids, pids, stg = [], [], [], [], [], []
     kept_views = []
     n_raw = 0
     for cam_slot, cache_slot, th in views:
@@ -161,6 +191,7 @@ def compose_instance(cache: SlotCache, inst: dict, cfg: InspectionConfig, proces
         xs.append(pw)
         ls.append(vp.label)
         ds.append(cdir)
+        stg.append(th)
         if keep_views:
             vids.append(np.full(len(pw), len(kept_views), np.int16))
             pids.append(vp.pix.astype(np.int64))
@@ -169,6 +200,19 @@ def compose_instance(cache: SlotCache, inst: dict, cfg: InspectionConfig, proces
     if not xs:
         z3 = np.zeros((0, 3), np.float32)
         return MergedCloud(z3, np.zeros(0, np.uint8), z3, 0, len(views), 0.0, 0.0, np.eye(4))
+    if stage_registration and registrar is not None and registration == "icp" and len(set(stg)) > 1:
+        # a turntable system registers every stage's partial cloud on its own before
+        # merging (here: to the nominal template), which absorbs the repositioning error
+        for th in sorted(set(stg)):
+            idx = [i for i, t in enumerate(stg) if t == th]
+            P = np.concatenate([xs[i] for i in idx])
+            Pv, _, _ = voxel_average(P, np.ones(len(P), np.uint8), np.tile([0, 0, 1.0], (len(P), 1)), 2 * voxel)
+            if len(Pv) < 100:
+                continue
+            Ts, _, _ = registrar.register(Pv)
+            for i in idx:
+                xs[i] = apply_T(Ts, xs[i])
+                ds[i] = ds[i] @ Ts[:3, :3].T
     xyz = np.concatenate(xs)
     lab = np.concatenate(ls)
     cdir = np.concatenate(ds)
