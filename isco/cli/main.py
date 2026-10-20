@@ -108,7 +108,9 @@ def parts_list():
 # ---------------------------------------------------------------------------- data
 @data_app.command("build")
 def data_build(parts: List[str], preset: str = "mvp", workers: int = 6, overwrite: bool = False,
-               yaw_mode: str = "guided", set_id: Optional[str] = None, dictionary: str = "default_dictionary"):
+               yaw_mode: str = "guided", set_id: Optional[str] = None, dictionary: str = "default_dictionary",
+               rebuild_sets: bool = typer.Option(False, help="regenerate the variant sets only; the slot cache and "
+                                                          "visibility then re-render just the changed instances")):
     """Variant set + slot cache (embree) + visibility table for each part."""
     from ..datagen.variants import build_variant_set
     from ..render.slot_cache import build_slot_cache
@@ -120,7 +122,7 @@ def data_build(parts: List[str], preset: str = "mvp", workers: int = 6, overwrit
         if set_id:
             spec.set_id = set_id
         t0 = time.time()
-        man = build_variant_set(pid, spec, n_workers=8, overwrite=overwrite)
+        man = build_variant_set(pid, spec, n_workers=8, overwrite=overwrite or rebuild_sets)
         build_slot_cache(pid, spec.set_id, C.sensor(), C.grid(), n_workers=workers, overwrite=overwrite)
         build_visibility(pid, spec.set_id, C.sensor(), C.grid(), overwrite=overwrite)
         typer.echo(f"{pid}/{spec.set_id}: {man['counts']} ready in {time.time() - t0:.0f}s")
