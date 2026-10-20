@@ -1,0 +1,7 @@
+set_id: mvp              # 40 bank + 100 val + 36 search + 36 report + 6 unreachable
+n_bank: 40
+n_val: 100
+per_type_search: 6
+per_type_report: 6
+n_unreachable: 6
+pose: {yaw_mode: guided, yaw_sigma_deg: 3.0, lateral_range_m: 0.005}

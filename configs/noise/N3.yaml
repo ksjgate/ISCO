@@ -1,0 +1,7 @@
+name: N3
+sigma0_m: 0.30e-3
+dropout_theta_c_deg: 65.0
+dropout_width_deg: 5.0
+dropout_p0: 0.05
+flying_p: 0.5
+t_acq_s: 0.002

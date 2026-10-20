@@ -1,0 +1,4 @@
+# 96 camera slots = 12 azimuths x 4 elevations x 2 distances (ADR-0003)
+azimuths_deg: [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+elevations_deg: [20, 40, 60, 80]
+distances_m: [0.25, 0.40]

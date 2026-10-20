@@ -1,0 +1,6 @@
+set_id: smoke
+n_bank: 8
+n_val: 12
+per_type_search: 1
+per_type_report: 1
+n_unreachable: 1

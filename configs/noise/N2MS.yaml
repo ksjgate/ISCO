@@ -1,0 +1,7 @@
+name: N2MS               # N2 with a 20 ms multi-shot structured-light acquisition (H4 ablation)
+sigma0_m: 0.15e-3
+dropout_theta_c_deg: 70.0
+dropout_width_deg: 5.0
+dropout_p0: 0.02
+flying_p: 0.3
+t_acq_s: 0.020

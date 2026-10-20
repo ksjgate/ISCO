@@ -8,3 +8,10 @@ dist/
 build/
 .env
 .venv/
+docs/
+# ISCO generated / downloaded data (never committed)
+data/
+runs/
+queue/
+*.db
+.pytest_cache/

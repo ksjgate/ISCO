@@ -1,0 +1,9 @@
+methods: [bo_warm]
+budget: 20
+seeds: [0]
+stage1_trials: 1500
+stage1_random: 500
+shortlist_k: 14
+shortlist_random: 4
+max_cams: 3
+max_cycle_s: 1.5

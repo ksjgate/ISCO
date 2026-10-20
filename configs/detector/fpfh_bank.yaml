@@ -1,0 +1,12 @@
+kind: fpfh_bank
+voxel_m: 0.4e-3
+normal_radius_m: 1.0e-3
+fpfh_radii_m: [1.0e-3, 2.0e-3, 4.0e-3]
+xyz_weight: 0.2
+coreset_ratio: 0.03
+coreset_max: 10000
+smooth_k: 32            # E0.5: 32-NN (~2 mm) smoothing of point scores
+image_agg: max
+use_coverage: true
+registration: icp
+fpr: 0.01

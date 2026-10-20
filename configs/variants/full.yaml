@@ -1,0 +1,6 @@
+set_id: full             # 60 bank + 200 val + 72 search + 72 report + 12 unreachable
+n_bank: 60
+n_val: 200
+per_type_search: 12
+per_type_report: 12
+n_unreachable: 12

@@ -1,0 +1,12 @@
+# Static-capture baseline for H4 (E4): v = 0, no jitter / blur / repositioning error,
+# cycle time not part of the cost.
+process_id: static_capture
+mode: static
+speeds_mps: [0.1, 0.3, 0.6]
+pitch_m: 0.3
+trigger_sigma_s: 0.0
+rotation_time_s: {none: 0.0, r90x1: 0.9, r180x1: 1.1, r90x3: 1.7}
+rot_reposition_sigma_m: 0.0
+rot_yaw_sigma_deg: 0.0
+register_icp: true
+cycle_time_in_cost: false

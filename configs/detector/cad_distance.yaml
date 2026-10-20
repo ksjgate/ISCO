@@ -1,0 +1,7 @@
+kind: cad_distance       # honest training-free baseline (ICP + point-to-CAD distance)
+voxel_m: 0.4e-3
+smooth_k: 32
+image_agg: max
+use_coverage: true
+registration: icp
+fpr: 0.01

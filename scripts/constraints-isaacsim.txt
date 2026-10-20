@@ -1,0 +1,5 @@
+# Versions pinned by Isaac Sim 5.1 (isaacsim-kernel 5.1.0.0 METADATA) or relied on by
+# the existing env_isaaclab stack. Passed with `-c` so extra installs never upgrade them.
+psutil==5.9.8
+numpy==1.26.0
+torch==2.7.0+cu128

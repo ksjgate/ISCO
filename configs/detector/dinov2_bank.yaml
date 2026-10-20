@@ -1,0 +1,12 @@
+kind: dinov2_bank        # E6 backbone: DINOv2-S/14 features of rendered normal-map views
+dino_model: facebook/dinov2-small
+dino_size: 224
+voxel_m: 0.4e-3
+xyz_weight: 0.2
+coreset_ratio: 0.03
+coreset_max: 10000
+smooth_k: 32
+image_agg: max
+use_coverage: true
+registration: icp
+fpr: 0.01

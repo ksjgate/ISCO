@@ -1,0 +1,19 @@
+# Defect dictionary (plan 결함 사전; sizes in metres). scale_k = E0.5 severity factor.
+scale_k: 1.0
+types: [dent, bulge, hole, cut, crack, warp]
+dent_diameter_m: [2.0e-3, 6.0e-3]
+dent_depth_m: [0.2e-3, 1.0e-3]
+bulge_diameter_m: [2.0e-3, 6.0e-3]
+bulge_height_m: [0.2e-3, 1.0e-3]
+hole_diameter_m: [1.0e-3, 4.0e-3]
+hole_depth_m: [1.0e-3, 3.0e-3]
+hole_through_prob: 0.5
+cut_length_m: [2.0e-3, 8.0e-3]
+cut_depth_m: [0.5e-3, 2.0e-3]
+crack_width_m: [0.2e-3, 0.5e-3]
+crack_length_m: [3.0e-3, 10.0e-3]
+crack_depth_m: [0.5e-3, 2.0e-3]
+warp_sagitta_m: [0.3e-3, 1.5e-3]
+warp_twist_deg: [1.0, 3.0]
+warp_twist_prob: 0.3
+difficulty_mix: {easy: 0.4, medium: 0.4, hard: 0.2}

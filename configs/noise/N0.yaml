@@ -1,0 +1,6 @@
+name: N0                 # noise-free (validation / E0)
+sigma0_m: 0.0
+dropout_p0: 0.0
+dropout_theta_c_deg: 90.0
+flying_p: 0.0
+t_acq_s: 0.002
