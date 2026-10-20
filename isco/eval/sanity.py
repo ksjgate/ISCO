@@ -195,7 +195,7 @@ def e0_4(parts: list[str], set_id: str = "mvp", n_workers: int = 20, out: str | 
     rows = []
     for pid in parts:
         cache = SlotCache.open(pid, set_id)
-        st = list(cache.meta.get("instance_stats", {}).values())
+        st = [s for s in cache.meta.get("instance_stats", {}).values() if "render_s" in s]
         per_inst = float(np.mean([s["render_s"] for s in st])) if st else float("nan")
         ev = ConfigEvaluator(pid, set_id, C.detector("fpfh_bank"), C.process("inline_default"), C.noise("N2"),
                              n_workers=n_workers, use_cache=False)

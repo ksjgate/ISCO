@@ -181,3 +181,21 @@ def test_cut_on_part_without_sharp_edges_is_a_surface_chip():
     tm = out.to_trimesh()
     assert meta["cut_mode"] == "surface_chip" and tm.is_watertight
     assert (out.face_label > 0).sum() > 0 and tm.volume < mesh.to_trimesh().volume
+
+
+def test_dent_label_area_matches_nominal_on_flat_surface():
+    """E0.3 acceptance: a face is labelled by its mean vertex displacement, so the label
+    matches the 10 %-of-height contour (an 'any vertex moved' rule dilates it by a ring)."""
+    import trimesh
+
+    from isco.datagen.defects import apply_bump
+    from isco.geometry.mesh_io import LabeledMesh
+
+    b = trimesh.creation.box(extents=[0.03, 0.03, 0.01])
+    b.apply_translation([0, 0, 0.005])
+    m = remesh_isotropic(LabeledMesh.from_trimesh(b), 2.5e-4)
+    R, h = 2.0e-3, -0.5e-3
+    out, _ = apply_bump(m, np.array([0.001, -0.002, 0.01]), np.array([0, 0, 1.0]), R, h, 1.0,
+                        np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), 0.02e-3, "dent:0")
+    area = out.to_trimesh().area_faces[out.face_label > 0].sum()
+    assert area / (np.pi * (0.8269 * R) ** 2) - 1 == pytest.approx(0.0, abs=0.10)

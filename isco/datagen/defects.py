@@ -216,8 +216,11 @@ def apply_bump(mesh: LabeledMesh, center: np.ndarray, normal: np.ndarray, radius
     w = np.where((r < radius) & same_side, (1 - (r / radius) ** 2) ** 2, 0.0)
     disp = height * w
     out.vertices = out.vertices + normal[None, :] * disp[:, None]
-    moved = np.abs(disp) > max(label_thr, 0.1 * abs(height))
-    fmask = moved[out.faces].any(axis=1)
+    thr = max(label_thr, 0.1 * abs(height))
+    moved = np.abs(disp) > thr
+    # a face is defect if its mean vertex displacement exceeds the threshold ("any vertex
+    # moved" would dilate the label by one face ring, +13-26 % area; E0.3)
+    fmask = np.abs(disp)[out.faces].mean(axis=1) > thr
     j = out.n_defects + 1
     out.face_label = np.where(fmask & (out.face_label == 0), j, out.face_label).astype(np.int32)
     out.label_names = list(out.label_names) + [name]

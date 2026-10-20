@@ -107,15 +107,28 @@ def _one(rec: dict):
 def build_visibility(part_id: str, set_id: str, sensor: SensorModel | None = None, grid: SlotGrid | None = None,
                      params: VisibilityParams | None = None, n_workers: int = 8, overwrite: bool = False) -> Path:
     from ..datagen.parts import load_part, load_part_mesh
-    from ..datagen.variants import load_manifest
+    from ..datagen.variants import load_manifest, set_dir
 
     sensor = sensor or SensorModel()
     grid = grid or SlotGrid()
     params = params or VisibilityParams()
+    from ..render.slot_cache import instance_digest
+    from ..utils.hashing import content_hash
+    from ..utils.io import read_json
+
     out = vis_dir(part_id, set_id, sensor.sensor_id)
-    if (out / "vis.npz").exists() and not overwrite:
-        return out / "vis.npz"
     man = load_manifest(part_id, set_id)
+    # reused only while the defect instances (meshes, labels, poses) are unchanged
+    digest = content_hash({r["inst_id"]: instance_digest(r["mesh"], r["T_world_part"]) for r in man["instances"]
+                           if r["role"] in ("search", "report", "unreachable")})
+    if (out / "vis.npz").exists() and not overwrite and (out / "vis.json").exists():
+        meta = read_json(out / "vis.json")
+        known = meta.get("defects_digest")
+        if known is None and (out / "vis.npz").stat().st_mtime >= (set_dir(part_id, set_id) / "manifest.json").stat().st_mtime:
+            write_json(out / "vis.json", {**meta, "defects_digest": digest})    # older table, newer than its manifest
+            known = digest
+        if known == digest:
+            return out / "vis.npz"
     spec = load_part(part_id)
     occ_p = data_root() / "conveyor" / "occluder.npz"
     cfg = {"sensor": sensor.model_dump(mode="json"), "grid": grid.to_dict(), "focus": spec.focus_m,
@@ -140,6 +153,6 @@ def build_visibility(part_id: str, set_id: str, sensor: SensorModel | None = Non
     write_json(out / "vis.json", {"part_id": part_id, "set_id": set_id, "grid": grid.to_dict(),
                                   "sensor": sensor.model_dump(mode="json"), "params": params.model_dump(),
                                   "n_instances": len(ids), "build_s": round(time.time() - t0, 1),
-                                  "occluder": cfg["occluder_path"] or "belt_plane"})
+                                  "occluder": cfg["occluder_path"] or "belt_plane", "defects_digest": digest})
     log.info(f"visibility {part_id}/{set_id}: {len(ids)} defect instances x {grid.n_slots} slots in {time.time() - t0:.1f}s")
     return out / "vis.npz"

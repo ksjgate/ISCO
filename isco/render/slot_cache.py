@@ -208,13 +208,17 @@ def build_slot_cache(part_id: str, set_id: str, sensor: SensorModel | None = Non
                 if (i + 1) % 25 == 0:
                     log.info(f"slot cache {part_id}/{set_id}: {i + 1}/{len(jobs)} instances")
     stats = {**old_stats, **{r["inst_id"]: r for r in results}}
-    stats = {i: {**stats[i], "digest": digests[i]} for i in digests if i in stats}
+    # every view on disk is current now (rendered or accepted above): record its digest,
+    # also for views of an interrupted build that never got render statistics
+    stats = {i: {**stats.get(i, {"inst_id": i}), "digest": digests[i]} for i in digests
+             if i in stats or (root / "views" / f"{i}.npz").exists()}
     meta["instance_stats"] = stats
     meta["build_s"] = round(time.time() - t0, 1)
-    n_px = np.array([s["n_px"] for s in stats.values()]) if stats else np.zeros((0, grid.n_slots))
+    rendered = [s for s in stats.values() if "n_px" in s]
+    n_px = np.array([s["n_px"] for s in rendered]) if rendered else np.zeros((0, grid.n_slots))
     meta["pixel_counts"] = {"mean_per_view": float(n_px.mean()) if n_px.size else 0.0,
                             "per_slot_mean": n_px.mean(axis=0).round(1).tolist() if n_px.size else []}
-    meta["truncated_views_total"] = int(sum(s["truncated_views"] for s in stats.values()))
+    meta["truncated_views_total"] = int(sum(s["truncated_views"] for s in rendered))
     write_json(root / "cache.json", meta)
     log.info(f"slot cache {part_id}/{set_id}: {len(results)} rendered in {meta['build_s']}s, "
              f"mean {meta['pixel_counts']['mean_per_view']:.0f} px/view, truncated views {meta['truncated_views_total']}")

@@ -96,6 +96,7 @@ def test_slot_cache_rerenders_only_changed_instances(tiny_root):
     from isco.geometry.camera_model import SlotGrid
     from isco.render.slot_cache import build_slot_cache, cache_dir
     from isco.schemas.sensor import SensorModel
+    from isco.visibility.raycast import build_visibility
 
     part = trimesh.creation.box(extents=[0.04, 0.02, 0.01])
     prepare_part("tiny_box", "procedural:tiny_box", "procedural", target_max_dim_m=0.04, target_edge_m=1e-3, mesh=part)
@@ -108,11 +109,15 @@ def test_slot_cache_rerenders_only_changed_instances(tiny_root):
 
     build_variant_set("tiny_box", spec(1.0), n_workers=1)
     build_slot_cache("tiny_box", "c", sensor, grid, n_workers=1)
+    vis = build_visibility("tiny_box", "c", sensor, grid, n_workers=1)
     views = cache_dir("tiny_box", "c", "sl_default") / "views"
     before = {p.name: p.stat().st_mtime_ns for p in views.glob("*.npz")}
+    vis_before = vis.stat().st_mtime_ns
     time.sleep(0.05)
+    assert build_visibility("tiny_box", "c", sensor, grid, n_workers=1).stat().st_mtime_ns == vis_before   # unchanged: reused
     build_variant_set("tiny_box", spec(1.4), n_workers=1, overwrite=True)
     build_slot_cache("tiny_box", "c", sensor, grid, n_workers=1)
     after = {p.name: p.stat().st_mtime_ns for p in views.glob("*.npz")}
     changed = {n for n in before if after[n] != before[n]}
     assert changed == {n for n in before if n.startswith("d_")}
+    assert build_visibility("tiny_box", "c", sensor, grid, n_workers=1).stat().st_mtime_ns != vis_before    # defects changed
