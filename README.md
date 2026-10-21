@@ -50,7 +50,7 @@ bash scripts/download_datasets.sh            # T-LESS models, MulSen-AD, Anomaly
 | MulSen-AD | real industrial parts and **real defective scans** (`mulsen_nut/flat_pad/capsule`) | MIT |
 | Real3D-AD | 360° prototype scans → Poisson meshes (`real3d_candybar/starfish`) | CC BY 4.0 |
 | Anomaly-ShapeNet v2 | defect taxonomy reference | CC BY 4.0 |
-| MVTec 3D-AD | sensor-noise statistics / detector reproduction (manual download, registration form) | CC BY-NC-SA 4.0 |
+| MVTec 3D-AD | sensor gap (real scans re-rendered through the sensor model) / BTF detector reproduction (manual download, registration form) | CC BY-NC-SA 4.0 |
 | Fusion 360 Gallery bodies | original proof-of-concept parts (`fusion_*`), kept **locally only** in `data/parts/raw/fusion360/` | non-commercial research, no redistribution |
 
 MVTec 3D-AD must be downloaded by hand from
@@ -132,7 +132,7 @@ kept moving it). `bash scripts/isaac_regression.sh` reruns the three commands.
 | `e0_3` | ground-truth defect masks (labelled vs nominal area) |
 | `e0_4` | timing (cache build, stage 1, stage 2) |
 | `e0_5` | severity calibration of the defect dictionary at a reference configuration |
-| `e0_6`, `e5b` | MVTec 3D-AD detector reproduction and sensor-noise statistics |
+| `e0_6`, `e5b` | MVTec 3D-AD: BTF detector reproduction; sensor gap (real scans re-rendered through the sensor model) |
 | `e1` | are optimal configurations part-specific? (cross-application matrix) |
 | `e2` | is ray-cast visibility a valid surrogate for detection? |
 | `e3` | is the detection objective non-additive over views (greedy coverage vs BO)? |

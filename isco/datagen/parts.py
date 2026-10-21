@@ -87,10 +87,11 @@ def prepare_part(part_id: str, source_path: str | Path, source: str, target_max_
 
 
 def make_dowel_mesh(diameter_m: float = 8e-3, length_m: float = 35e-3, chamfer_m: float = 0.5e-3, sections: int = 96):
-    """Procedural wooden-dowel stand-in for MVTec 3D-AD ``dowel`` (E5b sensor-gap anchor).
+    """Procedural turned-dowel part: a cylinder with chamfered ends lying along +X.
 
-    Dimensions are an approximation (to be refined from MVTec point clouds when the
-    dataset is available): a cylinder with chamfered ends lying along +X.
+    Planned as the MVTec 3D-AD ``dowel`` stand-in for E5b, but the MVTec object is a ribbed
+    plastic wall plug (~10 x 54 mm with fins), so E5b re-renders the real scans instead
+    (``isco.eval.mvtec3d``); this part is kept only as a smooth, edge-less test object.
     """
     import trimesh
 
