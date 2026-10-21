@@ -93,11 +93,17 @@ def main() -> None:
                 L.append(f"\nclosest level ({det}): {v['decision'][det]['closest_level']}")
             L += ["", f"closest level by σ on the part: {v['closest_level_by_sigma_part']}; "
                   f"N0 re-render vs real depth on the object: median {f(v['n0_vs_real_depth_median_mm'], 3)} mm", ""]
-    s = load("e1")
-    if s:
-        L += ["## E1 / H1 cross-application", "", f"median off-diagonal ΔFNR = {f(s['median_offdiag_delta'], 3)} (rule ≥ 0.10); "
+    for name, title in (("e1", "E1 / H1 cross-application"),
+                        ("e1_full", "E1-full (exploratory: seeds 0,1,2, budget 60)")):
+        s = load(name)
+        if not s:
+            continue
+        L += [f"## {title}", "", f"median off-diagonal ΔFNR = {f(s['median_offdiag_delta'], 3)} (rule ≥ 0.10); "
               f"significant pairs (Holm, ≥0.05) {s['n_pairs_significant_and_ge_0.05']}/{s['n_pairs']}; **H1 supported: {f(s['supported'])}**", "",
               "best configurations: " + "; ".join(f"{k}: {v['slots']} {v['rotation']} v{v['speed_level']}" for k, v in s["best_configs"].items()), ""]
+        D = np.array(s["delta_matrix"], float)
+        L += [f"negative off-diagonal pairs (another part's optimum better): {int(np.nansum(D < 0))}/{s['n_pairs']}; "
+              "mean FNR of each optimum over all parts: " + ", ".join(f"{k} {f(v)}" for k, v in s["universal_config_mean_fnr"].items()), ""]
     s = load("e2")
     if s:
         L += ["## E2 / H2 surrogate validity", "", "| part | ρ(V_area) | ρ(V_density) | ρ(V50) | recall@30 (V_area) | supported |", "|---|---|---|---|---|---|"]
@@ -135,13 +141,14 @@ def main() -> None:
             for k, v in s.items():
                 L.append(f"- {k}: " + "; ".join(f"{pk}: τ={f(pv['kendall_tau'])}, best-in-top10={f(pv['a_best_in_b_top10'])}" for pk, pv in v["pairs"].items()))
             L.append("")
-    s = load("e7")
-    if s:
-        L += ["## E7 noise ablation", ""]
-        for k, v in s.items():
-            L.append(f"- {k}: mean FNR {', '.join(f'{n} {f(x)}' for n, x in v['mean_fnr'].items())}; Kendall vs N2 "
-                     + ", ".join(f"{n} {f(x)}" for n, x in v["kendall_vs_N2"].items()))
-        L.append("")
+    for name, title in (("e7", "E7 noise ablation"), ("e7_n0", "E7-N0 (exploratory: noise-free level)")):
+        s = load(name)
+        if s:
+            L += [f"## {title}", ""]
+            for k, v in s.items():
+                L.append(f"- {k}: mean FNR {', '.join(f'{n} {f(x)}' for n, x in v['mean_fnr'].items())}; Kendall vs N2 "
+                         + ", ".join(f"{n} {f(x)}" for n, x in v["kendall_vs_N2"].items()))
+            L.append("")
     s = load("e7b")
     if s:
         L += ["## E7b yaw ablation", ""] + [f"- {k}: " + "; ".join(f"{sid}: {b['config']['slots']} {b['config']['rotation']} FNR {f(b['fnr_report'])}" for sid, b in v.items()) for k, v in s.items()] + [""]
