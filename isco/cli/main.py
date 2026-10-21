@@ -315,14 +315,19 @@ def sim_rgb(part: str, slots: str, out: str = "runs/rgb"):
 
 # ---------------------------------------------------------------------- experiments
 @exp_app.command("run")
-def exp_run(name: str, parts: List[str] = typer.Option(["fusion_51876"]), set_id: str = "mvp", seeds: str = "0",
-            budget: int = 60, workers: int = 20, out: Optional[str] = None):
-    """Run a paper experiment: e0_5, e1, e2, e3, e4, e6, e7, e8 (see isco.eval.hypotheses)."""
+def exp_run(name: str, parts: List[str] = typer.Option(["fusion_51876"]), set_id: str = "mvp",
+            seeds: Optional[str] = None, budget: Optional[int] = None, workers: int = 20, out: Optional[str] = None):
+    """Run a paper experiment: e0_5, e1, e2, e3, e4, e6, e7, e8 (see isco.eval.hypotheses).
+    Without --budget / --seeds each experiment uses its pre-registered values."""
     from ..eval import hypotheses as H
 
     fn = getattr(H, name)
-    rd = fn(parts=list(parts), set_id=set_id, seeds=[int(s) for s in seeds.split(",")], budget=budget,
-            n_workers=workers, out=out)
+    kw = {}
+    if seeds:
+        kw["seeds"] = [int(s) for s in seeds.split(",")]
+    if budget is not None:
+        kw["budget"] = budget
+    rd = fn(parts=list(parts), set_id=set_id, n_workers=workers, out=out, **kw)
     typer.echo(f"results: {rd}")
 
 
