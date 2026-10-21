@@ -95,7 +95,7 @@ def main() -> None:
                   f"N0 re-render vs real depth on the object: median {f(v['n0_vs_real_depth_median_mm'], 3)} mm", ""]
     s = load("e1")
     if s:
-        L += ["## E1 / H1 cross-application", "", f"median off-diagonal ΔFNR = {f(s['median_offdiag_delta'])}; "
+        L += ["## E1 / H1 cross-application", "", f"median off-diagonal ΔFNR = {f(s['median_offdiag_delta'], 3)} (rule ≥ 0.10); "
               f"significant pairs (Holm, ≥0.05) {s['n_pairs_significant_and_ge_0.05']}/{s['n_pairs']}; **H1 supported: {f(s['supported'])}**", "",
               "best configurations: " + "; ".join(f"{k}: {v['slots']} {v['rotation']} v{v['speed_level']}" for k, v in s["best_configs"].items()), ""]
     s = load("e2")
