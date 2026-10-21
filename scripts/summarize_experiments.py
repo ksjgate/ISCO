@@ -50,6 +50,49 @@ def main() -> None:
         p = ROOT / name / "summary.md"
         if p.exists():
             L += [f"## {title}", "", p.read_text().split("\n", 2)[-1], ""]
+    s = load("e0_6")
+    if s:
+        L += ["## E0.6 detector reproduction (MVTec 3D-AD)", "",
+              "| category | BTF FPFH I-AUROC | published | Δ | within ±0.02 | AUPRO (published) | ISCO point FPFH I-AUROC |",
+              "|---|---|---|---|---|---|---|"]
+        for k, v in s.items():
+            if "btf_fpfh" not in v:
+                L.append(f"| {k} | {v.get('status')} | | | | | |")
+                continue
+            b, pub = v["btf_fpfh"], v["btf_fpfh"]["published"] or {}
+            L.append(f"| {k} | {f(b['image_auroc'], 3)} | {f(pub.get('image_auroc'), 3)} | {f(b['delta_vs_published'], 3)} | "
+                     f"{f(b['within_0.02'])} | {f(b['aupro_0.3'], 3)} ({f(pub.get('aupro'), 3)}) | {f(v['isco_fpfh']['image_auroc'], 3)} |")
+        L.append("")
+    s = load("e5b")
+    if s:
+        L += ["## E5b sensor gap (real MVTec scans vs ISCO re-renders)", ""]
+        for k, v in s.items():
+            if "stats" not in v:
+                L += [f"- {k}: {v.get('status')}", ""]
+                continue
+            conds = list(v["stats"])
+            L += [f"### {k}", "", "| condition | σ part (mm) | σ support (mm) | valid on object | outliers near object | "
+                  "BTF FNR@1% (CI) | BTF FNR@5% | BTF AUROC | ISCO FNR@1% (CI) | ISCO FNR@5% | ISCO AUROC |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|"]
+            for c in conds:
+                st, d = v["stats"][c], v["detection"][c]
+                b, i = d["btf_fpfh"], d["isco_fpfh"]
+                L.append(f"| {c} | {f(st['sigma_part_mm'], 3)} | {f(st['sigma_support_mm'], 3)} | {f(st['valid_object'])} | "
+                         f"{f(st['outlier_frac_near_object'], 3)} | {f(b['fnr_1'])} ({f(b['fnr_1_ci'][0])}–{f(b['fnr_1_ci'][1])}) | "
+                         f"{f(b['fnr_5'])} | {f(b['auroc_test'])} | {f(i['fnr_1'])} ({f(i['fnr_1_ci'][0])}–{f(i['fnr_1_ci'][1])}) | "
+                         f"{f(i['fnr_5'])} | {f(i['auroc_test'])} |")
+            types = list(v["detection"]["real"]["btf_fpfh"]["fnr_1_by_type"])
+            for det in ("btf_fpfh", "isco_fpfh"):
+                L += ["", f"{det}: FNR@1%FPR by type (decision: |Δ| ≤ 0.15 in ≥ 2/3 types)", "",
+                      "| condition | " + " | ".join(types) + " | types within 0.15 | pass |", "|---" * (len(types) + 3) + "|"]
+                for c in conds:
+                    row = v["detection"][c][det]["fnr_1_by_type"]
+                    dec = v["decision"][det].get(c, {})
+                    L.append(f"| {c} | " + " | ".join(f(row[t]) for t in types)
+                             + f" | {dec.get('types_within_0.15', '–')} | {f(dec.get('pass')) if dec else '–'} |")
+                L.append(f"\nclosest level ({det}): {v['decision'][det]['closest_level']}")
+            L += ["", f"closest level by σ on the part: {v['closest_level_by_sigma_part']}; "
+                  f"N0 re-render vs real depth on the object: median {f(v['n0_vs_real_depth_median_mm'], 3)} mm", ""]
     s = load("e1")
     if s:
         L += ["## E1 / H1 cross-application", "", f"median off-diagonal ΔFNR = {f(s['median_offdiag_delta'])}; "
