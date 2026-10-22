@@ -117,7 +117,17 @@ def main() -> None:
         for k, v in s.items():
             L.append(f"| {k} | {f(v['bo_minus_greedy_vis_at_n3'])} | {f(v['fpfh_bank']['violation_rate_random_additions'])} | "
                      f"{f(v['cad_distance']['violation_rate_random_additions'])} | {f(v['supported'])} |")
-        L.append("")
+        # pre-registered C1 rule over parts: gap >= 0.05 in >= 4/6 parts and the violation rate
+        # pooled over all random additions > 10 % for the bank and < 3 % for CAD-distance
+        def pooled(det):
+            n = sum(v[det]["n_additions"] or 0 for v in s.values())
+            k = sum((v[det]["violation_rate_random_additions"] or 0) * (v[det]["n_additions"] or 0) for v in s.values())
+            return k / n if n else None
+        n_gap = sum((v["bo_minus_greedy_vis_at_n3"] or -1) >= 0.05 for v in s.values())
+        vb, vc = pooled("fpfh_bank"), pooled("cad_distance")
+        ok = n_gap >= (2 / 3) * len(s) and vb is not None and vb > 0.10 and vc is not None and vc < 0.03
+        L += ["", f"parts with BO − greedy-vis ≥ 0.05 at n = 3: {n_gap}/{len(s)} (rule ≥ 4/6); pooled violation rate "
+              f"FPFH bank {f(vb, 3)} (rule > 0.10), CAD-distance {f(vc, 3)} (rule < 0.03) → **C1 supported: {f(ok)}**", ""]
     s = load("e4")
     if s:
         L += ["## E4 / H4 static vs inline", "", "| part | static optimum | inline optimum | ΔFNR static-opt @0.6 m/s | config changed | supported |", "|---|---|---|---|---|---|"]
