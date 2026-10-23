@@ -131,14 +131,22 @@ def main() -> None:
               f"FPFH bank {f(vb, 3)} (rule > 0.10), CAD-distance {f(vc, 3)} (rule < 0.03) → **C1 supported: {f(ok)}**", ""]
     s = load("e4")
     if s:
-        L += ["## E4 / H4 static vs inline", "", "| part | static optimum | inline optimum | ΔFNR static-opt @0.6 m/s | config changed | supported |", "|---|---|---|---|---|---|"]
+        L += ["## E4 / H4 static vs inline", "", "| part | static optimum | inline optimum | ΔFNR static-opt @0.6 m/s | "
+              "static-opt T @0.6 m/s | config changed | supported (any speed) | supported (T at 0.6 m/s) |", "|---|---|---|---|---|---|---|---|"]
+        strict = []
         for k, v in s.items():
             if not isinstance(v, dict):
                 continue
             so, io = v["static_opt"], v["inline_opt"]
+            fast = v["static_opt_deployed_inline"]["2"]
+            # the per-part flag accepts a T violation at any speed, which 0.1 m/s always gives;
+            # the strict reading asks for a violation at the fastest speed
+            ok = v["config_changed(n or rotation)"] and (v["delta_fnr_static_opt_at_0.6mps"] >= 0.10 or fast["violates_T"])
+            strict.append(ok)
             L.append(f"| {k} | {so['slots']} {so['rotation']} | {io['slots']} {io['rotation']} v{io['speed_level']} | "
-                     f"{f(v['delta_fnr_static_opt_at_0.6mps'])} | {f(v['config_changed(n or rotation)'])} | {f(v['supported_for_part'])} |")
-        L += ["", f"**H4 supported: {f(s.get('supported'))}**", ""]
+                     f"{f(v['delta_fnr_static_opt_at_0.6mps'])} | {f(fast['cycle_time_s'], 1)} s | {f(v['config_changed(n or rotation)'])} | "
+                     f"{f(v['supported_for_part'])} | {f(ok)} |")
+        L += ["", f"**H4 supported: {f(s.get('supported'))}** (strict reading: {sum(strict)}/{len(strict)} parts, rule ≥ 2/3)", ""]
     s = load("e5")
     if s:
         L += ["## E5 / H3 real-scan ranking (MulSen-AD)", "", "| part | Kendall τ | top-5 overlap | supported |", "|---|---|---|---|"]
