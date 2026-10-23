@@ -113,9 +113,10 @@ def main() -> None:
         L += ["", f"**H2 valid in {n_sup}/{len(s)} parts (rule: ≥ 3/4)**", ""]
     s = load("e3")
     if s:
-        L += ["## E3 / C1 non-additivity", "", "| part | BO − greedy-vis at n=3 (FNR gain) | violation rate (random +1 cam) | violation rate CAD | supported |", "|---|---|---|---|---|"]
+        L += ["## E3 / C1 non-additivity", "", "| part | FNR gain of BO over greedy-vis at n=3 | violation rate (random +1 cam) | violation rate CAD | supported (per part) |", "|---|---|---|---|---|"]
         for k, v in s.items():
-            L.append(f"| {k} | {f(v['bo_minus_greedy_vis_at_n3'])} | {f(v['fpfh_bank']['violation_rate_random_additions'])} | "
+            gain = None if v["bo_minus_greedy_vis_at_n3"] is None else -v["bo_minus_greedy_vis_at_n3"]   # stored as FNR(BO) - FNR(greedy)
+            L.append(f"| {k} | {f(gain)} | {f(v['fpfh_bank']['violation_rate_random_additions'])} | "
                      f"{f(v['cad_distance']['violation_rate_random_additions'])} | {f(v['supported'])} |")
         # pre-registered C1 rule over parts: gap >= 0.05 in >= 4/6 parts and the violation rate
         # pooled over all random additions > 10 % for the bank and < 3 % for CAD-distance
@@ -123,10 +124,10 @@ def main() -> None:
             n = sum(v[det]["n_additions"] or 0 for v in s.values())
             k = sum((v[det]["violation_rate_random_additions"] or 0) * (v[det]["n_additions"] or 0) for v in s.values())
             return k / n if n else None
-        n_gap = sum((v["bo_minus_greedy_vis_at_n3"] or -1) >= 0.05 for v in s.values())
+        n_gap = sum(v["bo_minus_greedy_vis_at_n3"] is not None and -v["bo_minus_greedy_vis_at_n3"] >= 0.05 for v in s.values())
         vb, vc = pooled("fpfh_bank"), pooled("cad_distance")
         ok = n_gap >= (2 / 3) * len(s) and vb is not None and vb > 0.10 and vc is not None and vc < 0.03
-        L += ["", f"parts with BO − greedy-vis ≥ 0.05 at n = 3: {n_gap}/{len(s)} (rule ≥ 4/6); pooled violation rate "
+        L += ["", f"parts where BO beats greedy-vis by ≥ 0.05 FNR at n = 3: {n_gap}/{len(s)} (rule ≥ 4/6); pooled violation rate "
               f"FPFH bank {f(vb, 3)} (rule > 0.10), CAD-distance {f(vc, 3)} (rule < 0.03) → **C1 supported: {f(ok)}**", ""]
     s = load("e4")
     if s:
