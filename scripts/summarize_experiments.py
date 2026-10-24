@@ -164,7 +164,10 @@ def main() -> None:
         if s:
             L += [f"## {name.upper()} detector robustness", ""]
             for k, v in s.items():
-                L.append(f"- {k}: " + "; ".join(f"{pk}: τ={f(pv['kendall_tau'])}, best-in-top10={f(pv['a_best_in_b_top10'])}" for pk, pv in v["pairs"].items()))
+                ref = v["pairs"].get(v.get("reference_pair") or "", {})
+                robust = bool(ref) and ref["kendall_tau"] >= 0.5 and ref["a_best_in_b_top10"]   # both conditions of the rule
+                L.append(f"- {k}: " + "; ".join(f"{pk}: τ={f(pv['kendall_tau'])}, best-in-top10={f(pv['a_best_in_b_top10'])}" for pk, pv in v["pairs"].items())
+                         + f" → **detector-robust: {f(robust)}**")
             L.append("")
     for name, title in (("e7", "E7 noise ablation"), ("e7_n0", "E7-N0 (exploratory: noise-free level)")):
         s = load(name)
