@@ -149,10 +149,16 @@ def main() -> None:
         L += ["", f"**H4 supported: {f(s.get('supported'))}** (strict reading: {sum(strict)}/{len(strict)} parts, rule ≥ 2/3)", ""]
     s = load("e5")
     if s:
-        L += ["## E5 / H3 real-scan ranking (MulSen-AD)", "", "| part | Kendall τ | top-5 overlap | supported |", "|---|---|---|---|"]
+        L += ["## E5 / H3 real-scan ranking (MulSen-AD)", "", "FNR_real over all accepted real defects (nothing is selected on "
+              "the real set); report-only as sensitivity. Top-5 overlap: mean over random tie-breaks.", "",
+              "| part | real defects / val normals | Kendall τ | top-5 overlap | τ (report only) | overlap (report only) | supported |",
+              "|---|---|---|---|---|---|---|"]
         for k, v in s.items():
-            L.append(f"| {k} | {f(v['kendall_tau'])} | {v['top5_overlap']} | {f(v['supported_for_part'])} |")
-        L.append("")
+            L.append(f"| {k} | {v.get('n_real_defects', '–')} / {v.get('n_real_val', '–')} | {f(v['kendall_tau'])} | "
+                     f"{f(v['top5_overlap'], 1)} | {f(v.get('kendall_tau_report'))} | {f(v.get('top5_overlap_report'), 1)} | "
+                     f"{f(v['supported_for_part'])} |")
+        n_sup = sum(v["supported_for_part"] for v in s.values())
+        L += ["", f"**H3 supported in {n_sup}/{len(s)} parts (rule: ≥ 2/3) → {f(n_sup >= (2 / 3) * len(s))}**", ""]
     for name in ("e6", "e6_dino"):
         s = load(name)
         if s:

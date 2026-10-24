@@ -5,10 +5,11 @@ Real3D-AD secondary; H3 / E5).
 * **MulSen-AD** (MIT): category scans are STL meshes in scanner coordinates (mm).
   ``prepare_mulsen`` turns ``train/0.stl`` (hole-filled) into the part ``mulsen_<cat>``;
   ``build_mulsen_real_set`` registers every normal train scan and every *geometric*
-  defective test scan to that template (FPFH-RANSAC + ICP), maps them into the part's
-  rest frame (same uniform scale), labels defect faces from the GT points (exact
-  vertex matches) and writes a variant set (``set_id="real"``) with the same manifest
-  format as the synthetic sets -> real part-to-part variation + real defects for H3.
+  defective test scan to that template (principal axes or FPFH-RANSAC, then ICP), maps
+  them into the part's rest frame (same uniform scale), labels defect faces from the GT
+  points (exact vertex matches) and writes a variant set (``set_id="real"``) with the
+  same manifest format as the synthetic sets -> real part-to-part variation + real
+  defects for H3.
 * **Real3D-AD** (CC BY 4.0): 360-degree training prototypes (PCD) -> Poisson meshes ->
   parts ``real3d_<cat>`` (synthetic defects only: the test scans are one-sided).
 """
@@ -96,34 +97,73 @@ def _o3d_pcd(v: np.ndarray, voxel: float):
     return p, f
 
 
-def register_scan(src_v: np.ndarray, tgt_v: np.ndarray, voxel: float, seed: int = 0, n_restarts: int = 3) -> tuple[np.ndarray, float, float]:
-    """Global (FPFH + RANSAC) then point-to-plane ICP registration of a scan onto the
-    template, both in scanner units. Returns (T_tgt_src, fitness@2 voxels, inlier RMSE)."""
+def _principal_frames(v: np.ndarray) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Centroid and the 4 right-handed principal-axis frames (sign choices of the two
+    major axes) of a point set."""
+    c = v.mean(axis=0)
+    _, U = np.linalg.eigh(np.cov((v - c).T))
+    U = U[:, ::-1]
+    frames = []
+    for sx, sy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+        R = U * np.array([sx, sy, 1.0])
+        R[:, 2] = np.cross(R[:, 0], R[:, 1])
+        frames.append(R)
+    return c, frames
+
+
+def register_scan(src_v: np.ndarray, tgt_v: np.ndarray, voxel: float, seed: int = 0, n_restarts: int = 8) -> tuple[np.ndarray, float, float]:
+    """Registration of a scan onto the template, both in scanner units: global initial
+    guesses (the 4 principal-axis alignments of the centred clouds, then FPFH + RANSAC
+    with up to ``n_restarts`` seeds) refined by point-to-point ICP and guarded
+    point-to-plane ICP. Candidates are ranked by fitness at 2 voxels; returns
+    (T_tgt_src, fitness at 4 voxels, inlier RMSE at 2 voxels)."""
     import open3d as o3d
 
     reg = o3d.pipelines.registration
     s, fs = _o3d_pcd(src_v, voxel)
     t, ft = _o3d_pcd(tgt_v, voxel)
-    best = (np.eye(4), -1.0, np.inf)
+    best = [np.eye(4), -1.0, np.inf]
+
+    def refine(T0: np.ndarray) -> None:
+        # ranking fitness at 2 voxels: two *different* physical parts never agree to the
+        # 0.4-voxel refinement tolerance (fitness ~0.28 for good alignments with a 0.1 mm
+        # median distance), so judging at that tolerance rejected correct registrations
+        fit2 = lambda T: reg.evaluate_registration(s, t, voxel * 2.0, T)  # noqa: E731
+        T = np.asarray(reg.registration_icp(s, t, voxel * 3.0, T0, reg.TransformationEstimationPointToPoint(),
+                                            reg.ICPConvergenceCriteria(max_iteration=100)).transformation)
+        for dist in (1.0, 0.4):
+            # point-to-plane ICP is ill-conditioned on surfaces of revolution (the capsule
+            # left a perfect start for > 10 mm away), so a step is kept only if it does
+            # not lose fitness
+            Tn = np.asarray(reg.registration_icp(s, t, voxel * dist, T, reg.TransformationEstimationPointToPlane(),
+                                                 reg.ICPConvergenceCriteria(max_iteration=60)).transformation)
+            if fit2(Tn).fitness >= fit2(T).fitness - 1e-6:
+                T = Tn
+        ev = fit2(T)
+        if ev.fitness > best[1] + 1e-6 or (abs(ev.fitness - best[1]) < 1e-6 and ev.inlier_rmse < best[2]):
+            best[:] = [T, float(ev.fitness), float(ev.inlier_rmse)]
+
+    cs, frames = _principal_frames(np.asarray(s.points))
+    ct, (Rt, *_) = _principal_frames(np.asarray(t.points))
+    for Rs in frames:
+        T0 = np.eye(4)
+        T0[:3, :3] = Rt @ Rs.T
+        T0[:3, 3] = ct - T0[:3, :3] @ cs
+        refine(T0)
     for r in range(n_restarts):
+        if best[1] > 0.95:
+            break
         o3d.utility.random.seed(seed + r)
         g = reg.registration_ransac_based_on_feature_matching(
             s, t, fs, ft, True, voxel * 1.5, reg.TransformationEstimationPointToPoint(False), 3,
             [reg.CorrespondenceCheckerBasedOnEdgeLength(0.9), reg.CorrespondenceCheckerBasedOnDistance(voxel * 1.5)],
             reg.RANSACConvergenceCriteria(100000, 0.999))
-        icp = reg.registration_icp(s, t, voxel * 1.0, g.transformation, reg.TransformationEstimationPointToPlane(),
-                                   reg.ICPConvergenceCriteria(max_iteration=60))
-        icp = reg.registration_icp(s, t, voxel * 0.4, icp.transformation, reg.TransformationEstimationPointToPlane(),
-                                   reg.ICPConvergenceCriteria(max_iteration=60))
-        # acceptance fitness at 2 voxels: two *different* physical parts never agree to the
-        # 0.4-voxel refinement tolerance (fitness ~0.28 for good alignments with a 0.1 mm
-        # median distance), so judging at that tolerance rejected correct registrations
-        ev = reg.evaluate_registration(s, t, voxel * 2.0, icp.transformation)
-        if ev.fitness > best[1] + 1e-6 or (abs(ev.fitness - best[1]) < 1e-6 and ev.inlier_rmse < best[2]):
-            best = (np.asarray(icp.transformation), float(ev.fitness), float(ev.inlier_rmse))
-        if best[1] > 0.95:
-            break
-    return best
+        refine(np.asarray(g.transformation))
+    # acceptance at 4 voxels: correctly posed scans of a part with real part-to-part
+    # variation (flat pad: median 0.3 mm) reach only ~0.7 at 2 voxels but >= 0.97 at 4,
+    # while wrong poses stay <= 0.12 at 4 voxels
+    fit4 = reg.evaluate_registration(s, t, voxel * 4.0, best[0]).fitness
+    return best[0], float(fit4), best[2]
 
 
 def _gt_points(cat: str, dtype: str, idx: str) -> np.ndarray | None:
@@ -147,8 +187,9 @@ def _face_labels_from_gt(tm: trimesh.Trimesh, gt: np.ndarray | None, tol_mm: flo
 
 
 def build_mulsen_real_set(cat: str, set_id: str = "real", n_bank: int = 40, max_val: int = 100, seed: int = 0,
-                         min_fitness: float = 0.8, overwrite: bool = False, max_tests: int | None = None) -> dict:
-    """Variant set from *real* MulSen-AD scans (normals: train; defects: geometric tests)."""
+                         min_fitness: float = 0.95, overwrite: bool = False, max_tests: int | None = None) -> dict:
+    """Variant set from *real* MulSen-AD scans (normals: train; defects: geometric tests).
+    A scan is kept if its registration fitness at 4 voxels is >= ``min_fitness``."""
     from ..datagen.defects import visible_direction_count, difficulty_of
     from ..datagen.normal_variation import PoseParams, sample_pose
     from ..datagen.variants import set_dir
@@ -182,15 +223,22 @@ def build_mulsen_real_set(cat: str, set_id: str = "real", n_bank: int = 40, max_
     def add(path: str, role: str, dtype: str, gt: np.ndarray | None, k: int):
         tm = trimesh.load(path, force="mesh")
         if dtype != "normal":
+            if gt is None:
+                rejected.append({"path": path, "reason": "no GT file"})
+                return
             lab = _face_labels_from_gt(tm, gt)
             if lab.sum() == 0:
                 rejected.append({"path": path, "reason": "no GT faces"})
                 return
         else:
             lab = np.zeros(len(tm.faces), np.int32)
-        T, fit, rmse = register_scan(np.asarray(tm.vertices), tmpl_v, voxel, seed=k)
+        # register on the defect-free surface: a large defect (broken capsule) would
+        # otherwise pull the alignment and fail the acceptance because of the defect itself
+        keep = np.ones(len(tm.vertices), bool)
+        keep[np.unique(np.asarray(tm.faces)[lab > 0])] = False
+        T, fit, rmse = register_scan(np.asarray(tm.vertices)[keep], tmpl_v, voxel, seed=k)
         if fit < min_fitness:
-            rejected.append({"path": path, "reason": f"registration fitness {fit:.2f}"})
+            rejected.append({"path": path, "reason": f"registration fitness@4vox {fit:.2f}"})
             return
         v = trimesh.transform_points(np.asarray(tm.vertices), T_src_rest @ T)
         v[:, 2] -= v[:, 2].min()
@@ -226,8 +274,11 @@ def build_mulsen_real_set(cat: str, set_id: str = "real", n_bank: int = 40, max_
     for j, ti in enumerate(order):
         d, p = tests[ti]
         add(p, "search" if j % 2 == 0 else "report", d, _gt_points(cat, d, Path(p).stem), 1000 + j)
-    man = {"part_id": pid, "set_id": set_id, "spec": {"real": True, "source": "MulSen-AD", "n_bank": n_bank},
-           "spec_hash": content_hash({"real": cat, "n_bank": n_bank, "max_val": max_val, "seed": seed}),
+    # registration version and acceptance in the hash: evaluations cached for an earlier
+    # build of the set must not be reused
+    reg_spec = {"registration": "pca+ransac, p2p+guarded p2plane icp, defect-free surface", "min_fitness_4vox": min_fitness}
+    man = {"part_id": pid, "set_id": set_id, "spec": {"real": True, "source": "MulSen-AD", "n_bank": n_bank, **reg_spec},
+           "spec_hash": content_hash({"real": cat, "n_bank": n_bank, "max_val": max_val, "seed": seed, **reg_spec}),
            "template": spec.mesh_fine, "instances": records, "rejected": rejected,
            "build_s": round(time.time() - t0, 1),
            "counts": {r: sum(1 for x in records if x["role"] == r) for r in ("bank", "val", "search", "report", "unreachable")}}

@@ -85,7 +85,9 @@ class ConfigEvaluator:
             "config": cfg.model_dump(mode="json"), "config_id": cfg.config_id, "stage": 2, "seed": seed,
             "part_id": self.part_id, "set_id": self.set_id, "detector_id": self.detector.detector_id,
             "noise": self.noise.name, "process_id": self.process.process_id, "process_mode": self.process.mode,
-            "n_cam": cfg.n_cam, "objectives": self.cost.objectives(cfg, r["search"]["fnr"]),
+            # a real-defect set can lack one role (too few accepted scans): the objective
+            # then falls back to the report split
+            "n_cam": cfg.n_cam, "objectives": self.cost.objectives(cfg, (r.get("search") or r["report"])["fnr"]),
             "objectives_report": self.cost.objectives(cfg, r["report"]["fnr"]) if "report" in r else None,
             "surrogate": s1["surrogate"], "search": r.get("search"), "report": r.get("report"),
             "unreachable": r.get("unreachable"), "diagnostics": r.get("diagnostics"), "timing": r.get("timing"),

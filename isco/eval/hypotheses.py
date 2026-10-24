@@ -78,6 +78,19 @@ def _kendall(a, b) -> float:
     return float(kendalltau(a, b).statistic)
 
 
+def _top_overlap(a, b, k: int, rng: np.random.Generator, n_draws: int = 1000) -> float:
+    """Mean size of the intersection of the k lowest entries of a and b, ties broken at
+    random (index order would favour the configurations listed first)."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    hits = [len(set(np.lexsort((rng.random(len(a)), a))[:k]) & set(np.lexsort((rng.random(len(b)), b))[:k]))
+            for _ in range(n_draws)]
+    return float(np.mean(hits))
+
+
+def _defects(rec: dict) -> list[dict]:
+    return (rec.get("search_defects") or []) + (rec.get("report_defects") or [])
+
+
 def _spearman(a, b) -> float:
     from scipy.stats import spearmanr
 
@@ -370,13 +383,19 @@ def e5(parts: list[str], set_id: str = "mvp", seeds=(0,), budget: int = 40, n_wo
         finally:
             ev_r.close()
         fs = np.array([r["report"]["fnr"] for r in syn])
-        fr = np.array([r["report"]["fnr"] for r in real])
-        tau = _kendall(fs, fr)
-        overlap = len(set(np.argsort(fs)[:5]) & set(np.argsort(fr)[:5]))
+        # nothing is selected on the real set (the configurations come from the synthetic
+        # search), so its search/report split carries no selection: FNR_real uses every
+        # accepted real defect; the report-only value is kept as a sensitivity check
+        fr = np.array([scorer.fnr_at_fpr(r["val_scores"], [x["score"] for x in _defects(r)]) for r in real])
+        fr_rep = np.array([r["report"]["fnr"] for r in real])
+        rng_t = np.random.default_rng(seeds[0])
+        tau, overlap = _kendall(fs, fr), _top_overlap(fs, fr, 5, rng_t)
         summ[pid] = {"kendall_tau": tau, "top5_overlap": overlap, "n_configs": len(cfgs),
-                     "fnr_synthetic": fs.tolist(), "fnr_real": fr.tolist(),
+                     "n_real_defects": len(_defects(real[0])), "n_real_val": len(real[0]["val_scores"]),
+                     "fnr_synthetic": fs.tolist(), "fnr_real": fr.tolist(), "fnr_real_report": fr_rep.tolist(),
+                     "kendall_tau_report": _kendall(fs, fr_rep), "top5_overlap_report": _top_overlap(fs, fr_rep, 5, rng_t),
                      "supported_for_part": bool(tau >= 0.5 and overlap >= 3)}
-        log.info(f"E5 {pid}: Kendall tau {tau:.2f}, top-5 overlap {overlap}")
+        log.info(f"E5 {pid}: Kendall tau {tau:.2f}, top-5 overlap {overlap:.2f}")
     write_json(d / "summary.json", summ)
     return d
 
