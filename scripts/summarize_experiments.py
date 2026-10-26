@@ -187,6 +187,47 @@ def main() -> None:
             for m in v["hv_final_median"]:
                 L.append(f"| {k} | {m} | {f(v['hv_at_30_median'][m], 3)} | {f(v['hv_final_median'][m], 3)} |")
         L.append("")
+    s = load("specialization")
+    if s:
+        dU, dDA = s["delta_universal_minus_own"], s["delta_diag_advantage_full_minus_budget40"]
+        L += ["## Part-specific optimum vs universal configuration (held-out report set)", "",
+              f"universal configuration: {s['universal']['config']['slots']} {s['universal']['config']['rotation']} "
+              f"v{s['universal']['config']['speed_level']} (mean search FNR {f(s['universal']['mean_search_fnr'])}; {', '.join(s['universal']['origin'])})", "",
+              f"FNR(universal) − FNR(own, full search) = {f(dU['point'], 3)} [{f(dU['ci'][0], 3)}, {f(dU['ci'][1], 3)}] → "
+              f"**{s['decision_specialisation']}** (part-specific if ≥ 0.05 and lower > 0; universal-equivalent if upper < 0.05)",
+              f"diagonal advantage: full search {f(s['diag_advantage_full']['point'], 3)} (exact p {f(s['diag_perm_p_full'], 3)}), "
+              f"budget 40 {f(s['diag_advantage_budget40']['point'], 3)} (exact p {f(s['diag_perm_p_budget40'], 3)}); "
+              f"difference {f(dDA['point'], 3)} [{f(dDA['ci'][0], 3)}, {f(dDA['ci'][1], 3)}] → **{s['decision_search_budget']}**",
+              f"expected parts whose own optimum ranks first among 7: {f(s['expected_parts_with_own_first'], 1)}", "",
+              "| part | FNR own (full) | FNR own (budget 40) | FNR universal | own − universal [CI] | own − best other [CI] | E[rank of own] |",
+              "|---|---|---|---|---|---|---|"]
+        for k, v in s["per_part"].items():
+            a, b = v["own_minus_universal"], v["own_minus_best_other"]
+            L.append(f"| {k} | {f(v['fnr_own_full'])} | {f(v['fnr_own_budget40'])} | {f(v['fnr_universal'])} | "
+                     f"{f(a['point'])} [{f(a['ci'][0])}, {f(a['ci'][1])}] | {f(b['point'])} [{f(b['ci'][0])}, {f(b['ci'][1])}] | "
+                     f"{f(v['expected_rank_of_own_among_7'], 1)} |")
+        if "without_flat_pad" in s:
+            w = s["without_flat_pad"]["delta_universal_minus_own"]
+            L.append(f"\nwithout the flat pad: universal − own {f(w['point'], 3)} [{f(w['ci'][0], 3)}, {f(w['ci'][1], 3)}]")
+        L.append("")
+    s = load("feature_map")
+    if s:
+        L += ["## Part shape features vs optimal configurations", "",
+              "| hypothesis | feature | outcome | Spearman ρ | p | p (Holm) | supported |", "|---|---|---|---|---|---|---|"]
+        for k, v in s["tests"].items():
+            L.append(f"| {k} | {v['feature']} | {v['outcome']} | {f(v['rho'])} | {f(v['p'], 4)} | {f(v['p_holm'], 4)} | {f(v['supported'])} |")
+        r = s["practical_rule"]
+        L += ["", f"practical rule (leave one part out, {s['k_nn']} nearest parts): gap to own optimum {f(r['gap_to_own_optimum_mean'], 3)} "
+              f"(rule ≤ 0.05), gain over the universal fixed configuration {f(r['gain_over_universal_mean'], 3)} "
+              f"[{f(r['gain_over_universal_ci'][0], 3)}, {f(r['gain_over_universal_ci'][1], 3)}] → **supported: {f(r['supported'])}**", "",
+              "| part | flatness | best 1 view | rotation gain | hard defects | target loss | rotation advantage | fixed-grid FNR sd | own optimum |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        for p_ in s["parts"]:
+            ft, o = s["features"][p_], s["optima"][p_]
+            L.append(f"| {p_} | {f(ft['height_ratio'])} | {f(ft['best_1view'])} | {f(ft['rotation_gain'])} | {f(ft['defect_hard_share'])} | "
+                     f"{f(s['target_loss'][p_])} | {f(s['rotation_advantage'][p_])} | {f(s['fixed_grid_fnr_sd'][p_])} | "
+                     f"{o['slots']} {o['rotation']} v{o['speed_level']} |")
+        L.append("")
     out = ROOT / "SUMMARY.md"
     out.write_text("\n".join(L) + "\n")
     print(out)

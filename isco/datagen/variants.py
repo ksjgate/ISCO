@@ -177,5 +177,46 @@ def build_variant_set(part_id: str, spec: VariantSetSpec, n_workers: int = 8, ov
     return man
 
 
+def build_report_extension(part_id: str, base_set: str = "mvp", set_id: str = "mvp_r144", seed: int = 1,
+                           n_val_extra: int = 100, per_type_report: int = 24, n_workers: int = 8,
+                           overwrite: bool = False) -> dict:
+    """A larger held-out report set on the same normal parts: the base set's bank (and
+    validation normals) are kept as they are, ``n_val_extra`` validation normals and
+    ``per_type_report`` defects per type are generated with a new seed. Nothing in it is
+    used for selection (no search role) -- it only re-evaluates already chosen configurations
+    with more defects and a steadier 1 %-FPR threshold."""
+    out = set_dir(part_id, set_id)
+    base = load_manifest(part_id, base_set)
+    # same defect types, dictionary and variation as the base set
+    spec = VariantSetSpec.model_validate({**base["spec"], "set_id": set_id, "seed": seed, "n_bank": 0, "n_val": 0,
+                                          "per_type_search": 0, "per_type_report": per_type_report, "n_unreachable": 0})
+    ext = {"base_set": base_set, "base_spec_hash": base["spec_hash"], "n_val_extra": n_val_extra}
+    spec_hash = content_hash({**spec.model_dump(mode="json"), **ext})
+    man_path = out / "manifest.json"
+    if man_path.exists() and not overwrite:
+        man = read_json(man_path)
+        if man.get("spec_hash") == spec_hash:
+            return man
+        raise RuntimeError(f"{man_path} exists with a different spec; pass overwrite=True")
+    (out / "meshes").mkdir(parents=True, exist_ok=True)
+    n_val0 = sum(1 for r in base["instances"] if r["role"] == "val")
+    plan = [{"inst_id": f"n_val_{n_val0 + i:04d}", "role": "val", "type": "normal"} for i in range(n_val_extra)]
+    plan += [p for p in plan_instances(spec, []) if p["role"] == "report"]
+    t0 = time.time()
+    ctx = mp.get_context("spawn")
+    with ctx.Pool(n_workers, initializer=_init_worker, initargs=(part_id, spec.model_dump_json())) as pool:
+        records = pool.map(_make_instance, plan, chunksize=4)
+    kept = instances_by_role(base, "bank", "val")              # same meshes and poses as the base set
+    man = {
+        "part_id": part_id, "set_id": set_id, "spec": {**spec.model_dump(mode="json"), **ext}, "spec_hash": spec_hash,
+        "template": base["template"], "difficulty_table": base.get("difficulty_table"), "unreachable_types": [],
+        "settle_used": base.get("settle_used"), "instances": kept + records, "build_s": round(time.time() - t0, 1),
+        "counts": {r: sum(1 for x in kept + records if x["role"] == r) for r in ("bank", "val", "search", "report", "unreachable")},
+    }
+    write_json(man_path, man)
+    log.info(f"report extension {part_id}/{set_id}: {man['counts']} in {man['build_s']}s")
+    return man
+
+
 def instances_by_role(man: dict, *roles: str) -> list[dict]:
     return [r for r in man["instances"] if r["role"] in roles]

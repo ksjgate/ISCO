@@ -104,9 +104,29 @@ def _one(rec: dict):
     return rec["inst_id"], vis, cos.astype(np.float16), z.astype(np.float16)
 
 
+def _vis_cfg(part_id: str, sensor: SensorModel, grid: SlotGrid, n_samples: int) -> dict:
+    from ..datagen.parts import load_part
+
+    occ_p = data_root() / "conveyor" / "occluder.npz"
+    return {"sensor": sensor.model_dump(mode="json"), "grid": grid.to_dict(), "focus": load_part(part_id).focus_m,
+            "n_samples": n_samples, "occluder_path": str(occ_p) if occ_p.exists() else None}
+
+
+def nominal_visibility(part_id: str, sensor: SensorModel | None = None, grid: SlotGrid | None = None,
+                       n_samples: int = 2000):
+    """Slot visibility of area-weighted samples of the nominal part surface at the nominal
+    pose (no variant set needed): vis (K,N) bool, cos (K,N), z (K,N)."""
+    from ..datagen.parts import load_part_mesh
+
+    sensor, grid = sensor or SensorModel(), grid or SlotGrid()
+    _init(_vis_cfg(part_id, sensor, grid, n_samples))
+    nom = load_part_mesh(part_id, "fine")
+    pts, nrm = sample_faces(nom, np.ones(len(nom.faces), bool), n_samples, rng_for("vis-nominal", part_id))
+    return slot_visibility(nom, np.eye(4), pts, nrm, _W["cam_T"], _W["camera"], _W["occ"])
+
+
 def build_visibility(part_id: str, set_id: str, sensor: SensorModel | None = None, grid: SlotGrid | None = None,
                      params: VisibilityParams | None = None, n_workers: int = 8, overwrite: bool = False) -> Path:
-    from ..datagen.parts import load_part, load_part_mesh
     from ..datagen.variants import load_manifest, set_dir
 
     sensor = sensor or SensorModel()
@@ -129,10 +149,7 @@ def build_visibility(part_id: str, set_id: str, sensor: SensorModel | None = Non
             known = digest
         if known == digest:
             return out / "vis.npz"
-    spec = load_part(part_id)
-    occ_p = data_root() / "conveyor" / "occluder.npz"
-    cfg = {"sensor": sensor.model_dump(mode="json"), "grid": grid.to_dict(), "focus": spec.focus_m,
-           "n_samples": params.n_samples_per_defect, "occluder_path": str(occ_p) if occ_p.exists() else None}
+    cfg = _vis_cfg(part_id, sensor, grid, params.n_samples_per_defect)
     recs = [r for r in man["instances"] if r["role"] in ("search", "report", "unreachable")]
     t0 = time.time()
     ctx = mp.get_context("spawn")
@@ -142,11 +159,7 @@ def build_visibility(part_id: str, set_id: str, sensor: SensorModel | None = Non
     vis = np.stack([r[1] for r in res])           # (J, K, N)
     cos = np.stack([r[2] for r in res])
     z = np.stack([r[3] for r in res])
-    # nominal-part coverage samples at nominal pose
-    _init(cfg)
-    nom = load_part_mesh(part_id, "fine")
-    pts, nrm = sample_faces(nom, np.ones(len(nom.faces), bool), 2000, rng_for("vis-nominal", part_id))
-    nv, nc, nz = slot_visibility(nom, np.eye(4), pts, nrm, _W["cam_T"], _W["camera"], _W["occ"])
+    nv, nc, nz = nominal_visibility(part_id, sensor, grid)
     out.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out / "vis.npz", inst_ids=np.array(ids), vis=vis, cos=cos, z=z,
                         nominal_vis=nv, nominal_cos=nc.astype(np.float16), nominal_z=nz.astype(np.float16))
