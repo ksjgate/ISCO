@@ -1,0 +1,7 @@
+name: N2                 # provisional main level (to be fixed by the MVTec 3D-AD fit, E5b)
+sigma0_m: 0.15e-3
+dropout_theta_c_deg: 70.0
+dropout_width_deg: 5.0
+dropout_p0: 0.02
+flying_p: 0.3
+t_acq_s: 0.002

@@ -1,0 +1,9 @@
+# ISCO defaults (each key names a file under configs/<group>/<name>.yaml)
+sensor: sl_default
+noise: N2
+process: inline_default
+grid: default
+detector: fpfh_bank
+defects: default_dictionary
+variants: mvp
+search: smoke

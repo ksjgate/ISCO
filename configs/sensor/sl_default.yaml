@@ -1,0 +1,9 @@
+# Structured-light depth camera model (plan 실험 프로토콜: 1024^2, HFOV 20 deg)
+sensor_id: sl_default
+width: 1024
+height: 1024
+hfov_deg: 20.0          # 0.086 mm/px at 0.25 m, 0.138 mm/px at 0.40 m
+focal_length_mm: 24.0
+near_m: 0.05
+far_m: 2.0
+working_range_m: [0.15, 0.55]

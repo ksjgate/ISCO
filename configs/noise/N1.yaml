@@ -1,0 +1,7 @@
+name: N1
+sigma0_m: 0.05e-3
+dropout_theta_c_deg: 75.0
+dropout_width_deg: 5.0
+dropout_p0: 0.01
+flying_p: 0.1
+t_acq_s: 0.002
