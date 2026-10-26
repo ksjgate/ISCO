@@ -405,10 +405,72 @@ def fig_timeline(theme: str) -> None:
     save(fig, "timeline", theme)
 
 
+def fig_own_rank(theme: str) -> None:
+    """Exploratory re-read of the cross-application matrix: per part, the miss rate of all six optima,
+    the part's own optimum and the flat pad's optimum marked."""
+    plt, c = setup(theme)
+    s = json.loads((EXP / "e1" / "summary.json").read_text())
+    M = np.array(s["fnr_matrix_report"])
+    fp = PARTS.index("mulsen_flat_pad")
+    fig, ax = plt.subplots(figsize=size(theme, 10, 5.0))
+    for j in range(6):
+        others = [i for i in range(6) if i not in (j, fp)]
+        ax.scatter([j] * len(others), M[others, j], s=46, color=c["muted"], zorder=2,
+                   label="다른 부품의 최적 설정" if j == 0 else None)
+        if j != fp:
+            ax.scatter([j], [M[fp, j]], s=80, marker="^", color=c["series"][1], zorder=3,
+                       edgecolors=c["surface"], linewidths=0.8, label="평판 패드의 최적 설정" if j == 0 else None)
+        ax.scatter([j], [M[j, j]], s=150, marker="D", color=c["series"][0], zorder=4,
+                   edgecolors=c["surface"], linewidths=1.0, label="자기 최적 설정" if j == 0 else None)
+        rank_wo = 1 + sum(M[i, j] < M[j, j] - 1e-9 for i in range(6) if i not in (j, fp))
+        rank = 1 + sum(M[i, j] < M[j, j] - 1e-9 for i in range(6) if i != j)
+        txt = f"자기 설정 {rank}위" if j == fp or rank == rank_wo else f"자기 설정 {rank}위\n평판 설정 제외 {rank_wo}위"
+        ax.text(j, 0.03, txt, ha="center", va="bottom", fontsize=10, color=c["ink2"])
+    ax.set_xticks(range(6), [SHORT[p] for p in PARTS])
+    ax.set_ylim(0, 1.0)
+    ax.set_xlim(-0.6, 5.6)
+    ax.yaxis.set_major_formatter(lambda v, _: f"{v * 100:.0f}%")
+    ax.set_ylabel("성적용 결함 미검률 (과검률 1% 기준)")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.09), fontsize=10, ncol=3)
+    ax.set_title("부품마다 6개 최적 설정을 써 보면, 자기 최적 설정은 몇 위인가 (낮을수록 좋음, 결함 1개 = 2.8%p)")
+    fig.tight_layout()
+    save(fig, "own_rank", theme)
+
+
+def fig_part_features(theme: str) -> None:
+    """Exploratory: the share of defects no single view sees well vs the loss a part takes under the
+    other parts' optima; filled = its optimum uses the rotation stage."""
+    plt, c = setup(theme)
+    f = json.loads((WORK / "part_features.json").read_text())
+    fig, ax = plt.subplots(figsize=size(theme, 9.4, 5.2))
+    for k, p in enumerate(PARTS):
+        x = f["features"][p]["defect_hard_share"]
+        y = f["loss_as_target_pp"][p]
+        rot = f["best_config"][p]["rotation"] != "none"
+        ax.scatter([x], [y], s=120, marker="o" if rot else "s", zorder=3,
+                   color=c["series"][1] if rot else c["series"][0], edgecolors=c["surface"], linewidths=1.0)
+        # the three hardest parts share x; label 29 above, 13 beside, the nut below its marker
+        dx, dy, va = {"tless_29": (0.002, 1.4, "bottom"), "tless_13": (0.003, 0.0, "center"),
+                      "mulsen_nut": (0.002, -1.4, "top")}.get(p, (0.002, 1.4, "bottom"))
+        ax.text(x + dx, y + dy, f"{SHORT[p]} (높이/길이 {f['features'][p]['height_ratio']:.2f})",
+                fontsize=10.5, color=c["ink2"], va=va)
+    ax.axhline(0, color=c["axis"], lw=1)
+    ax.scatter([], [], s=90, marker="o", color=c["series"][1], label="최적 설정에 회전대 사용")
+    ax.scatter([], [], s=90, marker="s", color=c["series"][0], label="최적 설정에 회전대 없음")
+    ax.legend(loc="upper left", fontsize=10)
+    ax.set_xlabel("어느 카메라 한 대로도 잘 안 보이는 결함의 비율")
+    ax.set_ylabel("다른 부품의 최적 설정을 쓸 때 평균 손해 (%p)")
+    ax.set_xlim(0.04, 0.17)
+    ax.set_ylim(-10, 25)
+    ax.set_title("한 대로 안 보이는 결함이 많은 부품일수록 회전대를 쓰고, 남의 설정을 쓰면 손해가 크다\n(부품 6개, 탐색적 관찰)")
+    fig.tight_layout()
+    save(fig, "part_features", theme)
+
+
 def main() -> None:
     for theme in ("light", "dark"):
         for fn in (fig_cross, fig_visibility, fig_camera_addition, fig_static_inline, fig_detectors, fig_noise,
-                   fig_sensor_gap, fig_search, fig_rigs, fig_types, fig_timeline):
+                   fig_sensor_gap, fig_search, fig_rigs, fig_types, fig_timeline, fig_own_rank, fig_part_features):
             fn(theme)
             print(f"[figures] {theme} {fn.__name__}", flush=True)
 

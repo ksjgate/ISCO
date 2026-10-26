@@ -382,7 +382,7 @@ python scripts/make_report_assets.py            # 정지 화면, 차트, 카메�
 python scripts/make_demo_assets.py              # 기준 배치 비교 표·그림, 결함 예시, 커버리지 지도
 ```
 
-중간 점검 자료(제품 6종 검사 시뮬레이션을 담은 약 3분 50초 영상, 38장 발표 자료, 그림)는
+중간 점검 자료(제품 6종 검사 시뮬레이션을 담은 약 3분 50초 영상, 41장 발표 자료, 그림)는
 `scripts/midterm/`(브랜치 `isco/midterm-reports`)로 만든다. 결과는 `runs/midterm_reports/`에 쌓인다.
 ```bash
 python scripts/midterm/scores.py                # 제품별 권장 설정의 점별 이상 점수
