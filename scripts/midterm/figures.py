@@ -438,31 +438,30 @@ def fig_own_rank(theme: str) -> None:
 
 
 def fig_part_features(theme: str) -> None:
-    """Exploratory: the share of defects no single view sees well vs the loss a part takes under the
-    other parts' optima; filled = its optimum uses the rotation stage."""
+    """Exploratory: how much more of the surface one 90-degree turn shows to the best single camera vs the
+    loss a part takes under the other parts' optima; marker = its optimum uses the rotation stage."""
     plt, c = setup(theme)
     f = json.loads((WORK / "part_features.json").read_text())
     fig, ax = plt.subplots(figsize=size(theme, 9.4, 5.2))
     for k, p in enumerate(PARTS):
-        x = f["features"][p]["defect_hard_share"]
+        x = 100 * f["features"][p]["rotation_gain"]
         y = f["loss_as_target_pp"][p]
         rot = f["best_config"][p]["rotation"] != "none"
         ax.scatter([x], [y], s=120, marker="o" if rot else "s", zorder=3,
                    color=c["series"][1] if rot else c["series"][0], edgecolors=c["surface"], linewidths=1.0)
-        # the three hardest parts share x; label 29 above, 13 beside, the nut below its marker
-        dx, dy, va = {"tless_29": (0.002, 1.4, "bottom"), "tless_13": (0.003, 0.0, "center"),
-                      "mulsen_nut": (0.002, -1.4, "top")}.get(p, (0.002, 1.4, "bottom"))
-        ax.text(x + dx, y + dy, f"{SHORT[p]} (높이/길이 {f['features'][p]['height_ratio']:.2f})",
-                fontsize=10.5, color=c["ink2"], va=va)
+        # T-LESS 13 sits right of and just below 29: put its label under its own marker
+        dy, va = (-1.4, "top") if p == "tless_13" else (1.4, "bottom")
+        ax.text(x + 0.25, y + dy, f"{SHORT[p]} (높이/길이 {f['features'][p]['height_ratio']:.2f})",
+                fontsize=10.5, color=c["ink2"], va=va, ha="left" if p != "tless_13" else "right")
     ax.axhline(0, color=c["axis"], lw=1)
     ax.scatter([], [], s=90, marker="o", color=c["series"][1], label="최적 설정에 회전대 사용")
     ax.scatter([], [], s=90, marker="s", color=c["series"][0], label="최적 설정에 회전대 없음")
     ax.legend(loc="upper left", fontsize=10)
-    ax.set_xlabel("어느 카메라 한 대로도 잘 안 보이는 결함의 비율")
+    ax.set_xlabel("가장 좋은 카메라 1대에 90° 회전을 더하면 더 보이는 표면 (%p)")
     ax.set_ylabel("다른 부품의 최적 설정을 쓸 때 평균 손해 (%p)")
-    ax.set_xlim(0.04, 0.17)
+    ax.set_xlim(7, 27)
     ax.set_ylim(-10, 25)
-    ax.set_title("한 대로 안 보이는 결함이 많은 부품일수록 회전대를 쓰고, 남의 설정을 쓰면 손해가 크다\n(부품 6개, 탐색적 관찰)")
+    ax.set_title("회전하면 더 보이는 표면이 큰 부품일수록 회전대를 쓰고, 남의 설정을 쓰면 손해가 컸다\n(부품 6개, 탐색적 관찰)")
     fig.tight_layout()
     save(fig, "part_features", theme)
 

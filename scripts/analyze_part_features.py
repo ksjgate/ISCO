@@ -53,7 +53,9 @@ def descriptors(pid):
     redund = R.sum(0).mean() / 96                                        # mean share of views seeing a point
     d = z["vis"]                                                         # defects x 96 x 200
     dvis = d.mean(2)                                                     # per-view visible share of each defect
-    best_view = dvis.max(1)
+    # search + report defects only: the bottom controls ("u_*") would put the same floor under every part
+    real = np.array([not str(i).startswith("u_") for i in z["inst_ids"]])
+    best_view = dvis[real].max(1)
     return {
         "height_ratio": float(ext[2] / ext[0]),                          # flatness: smallest / largest extent
         "reachable": float(reach.mean()),                                # surface seen from >= 1 of 96 slots
@@ -65,7 +67,9 @@ def descriptors(pid):
         "by_elevation": [float(x) for x in by_el],
         "top_minus_low": float(by_el[3] - by_el[0]),
         "defect_best_view_median": float(np.median(best_view)),
-        "defect_hard_share": float((best_view < 0.3).mean()),           # defects no single view sees well
+        # pre-registered definition (§13): the best single view sees less than half of the defect
+        "defect_hard_share": float((best_view < 0.5).mean()),
+        "defect_hard_share_lt30": float((best_view < 0.3).mean()),       # first (10-26 morning) threshold, controls excluded
     }
 
 
